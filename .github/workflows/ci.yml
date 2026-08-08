@@ -1,0 +1,162 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
+      - run: cargo +1.97.1 fmt --all -- --check
+      - run: cargo +1.97.1 clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo +1.97.1 test --workspace --all-features
+      - run: cargo +1.97.1 doc --workspace --no-deps
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - run: rustup toolchain install 1.94.0 --profile minimal
+      - run: cargo +1.94.0 check --workspace --all-targets
+
+  distributed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres: "16"
+            redis: "7"
+          - postgres: "17"
+            redis: "8"
+          - postgres: "18"
+            redis: "8"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: sdk_auth
+          POSTGRES_PASSWORD: sdk_auth_test
+          POSTGRES_DB: sdk_auth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sdk_auth -d sdk_auth"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:${{ matrix.redis }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SDK_AUTH_TEST_POSTGRES_URL: postgres://sdk_auth:sdk_auth_test@127.0.0.1:5432/sdk_auth
+      SDK_AUTH_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: cargo +1.97.1 test -p sdk-auth-migrate
+      - run: cargo +1.97.1 test -p sdk-auth-postgres --test full_contract postgres_satisfies_full_contract
+      - run: cargo +1.97.1 test -p sdk-auth-postgres --test distributed_contract
+      - run: cargo +1.97.1 test -p sdk-auth-redis --test distributed_contract
+
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install OpenSSL on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - name: Configure OpenSSL on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew install openssl@3 pkg-config
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - name: Configure OpenSSL on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install openssl --yes --no-progress
+          "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL-Win64\include" >> $env:GITHUB_ENV
+          "OPENSSL_LIB_DIR=C:\Program Files\OpenSSL-Win64\lib\VC\x64\MD" >> $env:GITHUB_ENV
+          "C:\Program Files\OpenSSL-Win64\bin" >> $env:GITHUB_PATH
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: cargo test --workspace --all-features
+      - run: npm ci
+        working-directory: crates/sdk-auth-node
+      - run: npm run build
+        working-directory: crates/sdk-auth-node
+      - run: npm test
+        working-directory: crates/sdk-auth-node
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo check -p sdk-auth-wasm --target wasm32-unknown-unknown
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - run: rustup toolchain install nightly --profile minimal
+      - run: cargo +nightly install cargo-fuzz --locked
+      - run: cargo +nightly fuzz run untrusted_validation -- -max_total_time=20
+      - run: cargo +nightly fuzz run mfa_inputs -- -max_total_time=20
+      - run: cargo +nightly fuzz run iam_inputs -- -max_total_time=20
+      - run: cargo +nightly fuzz run webauthn_response -- -max_total_time=20
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: cargo install cargo-audit --locked
+      - run: cargo install cargo-deny --locked
+      - run: cargo audit --deny warnings
+      - run: cargo deny check
+      - name: Reject obvious committed secrets
+        shell: bash
+        run: |
+          if grep -RInE --exclude-dir=.git --exclude-dir=target --exclude='*.lock' '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{30,})' .; then
+            exit 1
+          fi
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
+      - run: rustup component add llvm-tools-preview
+      - run: cargo install cargo-llvm-cov --locked
+      - run: cargo llvm-cov --workspace --all-features --ignore-filename-regex 'sdk-auth-(node|wasm|testing|memory|sqlite|postgres|redis|migrate|error|types)|sdk-auth-core[/\\]src[/\\](facades|sdk)\.rs|sdk-auth-webauthn[/\\]src' --fail-under-lines 90 --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage
+          path: lcov.info
+          if-no-files-found: error

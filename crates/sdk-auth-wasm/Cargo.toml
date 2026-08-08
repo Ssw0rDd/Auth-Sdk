@@ -1,0 +1,20 @@
+[package]
+name = "sdk-auth-wasm"
+description = "Client-safe WebAssembly validators for SDK-Auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sdk-auth-authorization = { path = "../sdk-auth-authorization", version = "=0.6.0", default-features = false }
+sdk-auth-validation = { path = "../sdk-auth-validation", version = "=0.6.0" }
+wasm-bindgen.workspace = true
+
+[lints]
+workspace = true

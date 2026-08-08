@@ -1,0 +1,49 @@
+[package]
+name = "sdk-auth-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.10"
+sdk-auth-validation = { path = "../crates/sdk-auth-validation" }
+sdk-auth-mfa = { path = "../crates/sdk-auth-mfa" }
+sdk-auth-authorization = { path = "../crates/sdk-auth-authorization" }
+sdk-auth-crypto = { path = "../crates/sdk-auth-crypto" }
+sdk-auth-types = { path = "../crates/sdk-auth-types" }
+sdk-auth-core = { path = "../crates/sdk-auth-core" }
+sdk-auth-webauthn = { path = "../crates/sdk-auth-webauthn" }
+url = "2.5.8"
+
+[[bin]]
+name = "untrusted_validation"
+path = "fuzz_targets/untrusted_validation.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mfa_inputs"
+path = "fuzz_targets/mfa_inputs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iam_inputs"
+path = "fuzz_targets/iam_inputs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_response"
+path = "fuzz_targets/webauthn_response.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

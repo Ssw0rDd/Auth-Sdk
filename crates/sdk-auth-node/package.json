@@ -1,0 +1,23 @@
+{
+  "name": "@sdk-auth/internal-node",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Private N-API binding for SDK-Auth",
+  "main": "sdk-auth-node.node",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "napi build --release",
+    "build:platform": "napi build --platform --release",
+    "test": "node test/smoke.cjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.8.0"
+  },
+  "napi": {
+    "binaryName": "sdk-auth-node"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT OR Apache-2.0"
+}

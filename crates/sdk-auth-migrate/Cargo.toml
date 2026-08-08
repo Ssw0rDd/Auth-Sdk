@@ -1,0 +1,28 @@
+[package]
+name = "sdk-auth-migrate"
+description = "Offline SDK-Auth storage migration tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+rusqlite.workspace = true
+sdk-auth-error = { path = "../sdk-auth-error", version = "=0.6.0" }
+sdk-auth-postgres = { path = "../sdk-auth-postgres", version = "=0.6.0" }
+sdk-auth-sqlite = { path = "../sdk-auth-sqlite", version = "=0.6.0" }
+sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0" }
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

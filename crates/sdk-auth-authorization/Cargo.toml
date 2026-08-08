@@ -1,0 +1,30 @@
+[package]
+name = "sdk-auth-authorization"
+description = "Validated authorization domain types and pure RBAC evaluation for SDK-Auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[features]
+default = ["domain"]
+domain = ["dep:chrono", "dep:sdk-auth-types"]
+
+[dependencies]
+chrono = { workspace = true, optional = true }
+sdk-auth-error = { path = "../sdk-auth-error", version = "=0.6.0" }
+sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0", optional = true }
+serde.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest.workspace = true
+
+[[bench]]
+name = "rbac"
+harness = false
+
+[lints]
+workspace = true

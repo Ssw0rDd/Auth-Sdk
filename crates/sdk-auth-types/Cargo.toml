@@ -1,0 +1,20 @@
+[package]
+name = "sdk-auth-types"
+description = "Validated domain types for SDK-Auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+chrono.workspace = true
+email_address.workspace = true
+sdk-auth-error = { path = "../sdk-auth-error", version = "=0.6.0" }
+serde.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+zeroize.workspace = true
+
+[lints]
+workspace = true

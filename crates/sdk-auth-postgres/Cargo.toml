@@ -1,0 +1,36 @@
+[package]
+name = "sdk-auth-postgres"
+description = "PostgreSQL adapter for SDK-Auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+blake3.workspace = true
+chrono.workspace = true
+sdk-auth-authorization = { path = "../sdk-auth-authorization", version = "=0.6.0" }
+sdk-auth-core = { path = "../sdk-auth-core", version = "=0.6.0" }
+sdk-auth-crypto = { path = "../sdk-auth-crypto", version = "=0.6.0" }
+sdk-auth-error = { path = "../sdk-auth-error", version = "=0.6.0" }
+sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0" }
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+hmac.workspace = true
+sdk-auth-memory = { path = "../sdk-auth-memory", version = "=0.6.0" }
+sdk-auth-sqlite = { path = "../sdk-auth-sqlite", version = "=0.6.0" }
+sdk-auth-testing = { path = "../sdk-auth-testing", version = "=0.6.0" }
+sha1.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

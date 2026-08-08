@@ -1,0 +1,6 @@
+[resolver]
+incompatible-rust-versions = "fallback"
+
+[build]
+incremental = true
+

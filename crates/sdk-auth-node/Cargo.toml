@@ -1,0 +1,42 @@
+[package]
+name = "sdk-auth-node"
+description = "N-API binding for the server-side SDK-Auth service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+chrono.workspace = true
+napi.workspace = true
+napi-derive.workspace = true
+sdk-auth-authorization = { path = "../sdk-auth-authorization", version = "=0.6.0" }
+sdk-auth-core = { path = "../sdk-auth-core", version = "=0.6.0" }
+sdk-auth-crypto = { path = "../sdk-auth-crypto", version = "=0.6.0" }
+sdk-auth-error = { path = "../sdk-auth-error", version = "=0.6.0" }
+sdk-auth-postgres = { path = "../sdk-auth-postgres", version = "=0.6.0" }
+sdk-auth-redis = { path = "../sdk-auth-redis", version = "=0.6.0" }
+sdk-auth-sqlite = { path = "../sdk-auth-sqlite", version = "=0.6.0" }
+sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0" }
+sdk-auth-webauthn = { path = "../sdk-auth-webauthn", version = "=0.6.0" }
+url.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
+
+[lints.rust]
+missing_docs = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"

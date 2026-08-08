@@ -1,0 +1,14 @@
+/target/
+/artifacts/
+/coverage/
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/target/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+node_modules/
+*.node
