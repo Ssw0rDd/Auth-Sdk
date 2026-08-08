@@ -165,6 +165,7 @@ pub(crate) fn authentication_method_name(
         AuthenticationMethod::PasswordRecoveryCode => "password_recovery_code",
         AuthenticationMethod::PasswordTrustedDevice => "password_trusted_device",
         AuthenticationMethod::Passkey => "passkey",
+        AuthenticationMethod::Federated => "federated",
         _ => return Err(AuthError::storage_unavailable()),
     })
 }
@@ -176,6 +177,7 @@ pub(crate) fn parse_authentication_method(value: &str) -> Result<AuthenticationM
         "password_recovery_code" => Ok(AuthenticationMethod::PasswordRecoveryCode),
         "password_trusted_device" => Ok(AuthenticationMethod::PasswordTrustedDevice),
         "passkey" => Ok(AuthenticationMethod::Passkey),
+        "federated" => Ok(AuthenticationMethod::Federated),
         _ => Err(AuthError::storage_unavailable()),
     }
 }
@@ -210,6 +212,8 @@ pub(crate) fn event_name(kind: AuthEventKind) -> Result<&'static str, AuthError>
         AuthEventKind::PasskeyRenamed => "passkey_renamed",
         AuthEventKind::PasskeyRevoked => "passkey_revoked",
         AuthEventKind::PasskeyCloneSuspected => "passkey_clone_suspected",
+        AuthEventKind::FederatedIdentityLinked => "federated_identity_linked",
+        AuthEventKind::FederatedUserRegistered => "federated_user_registered",
         AuthEventKind::IamRealmBootstrapped => "iam_realm_bootstrapped",
         AuthEventKind::IamPermissionChanged => "iam_permission_changed",
         AuthEventKind::IamRoleChanged => "iam_role_changed",
@@ -242,6 +246,8 @@ pub(crate) fn parse_event_name(value: &str) -> Result<AuthEventKind, AuthError> 
         "passkey_renamed" => Ok(AuthEventKind::PasskeyRenamed),
         "passkey_revoked" => Ok(AuthEventKind::PasskeyRevoked),
         "passkey_clone_suspected" => Ok(AuthEventKind::PasskeyCloneSuspected),
+        "federated_identity_linked" => Ok(AuthEventKind::FederatedIdentityLinked),
+        "federated_user_registered" => Ok(AuthEventKind::FederatedUserRegistered),
         "iam_realm_bootstrapped" => Ok(AuthEventKind::IamRealmBootstrapped),
         "iam_permission_changed" => Ok(AuthEventKind::IamPermissionChanged),
         "iam_role_changed" => Ok(AuthEventKind::IamRoleChanged),

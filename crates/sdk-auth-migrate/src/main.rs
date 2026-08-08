@@ -85,9 +85,96 @@ const TABLES: &[TableSpec] = &[
             Kind::Text,
             Kind::Text,
             Kind::Bool,
+            Kind::OptionalText,
+            Kind::Timestamp,
+            Kind::Timestamp,
+        ],
+    ),
+    table(
+        "federated_identities",
+        &[
+            "realm_id",
+            "id",
+            "user_id",
+            "provider_id",
+            "issuer",
+            "subject",
+            "verified_email",
+            "normalized_verified_email",
+            "created_at",
+            "last_used_at",
+            "revoked_at",
+        ],
+        &[
+            "realm_id",
+            "id",
+            "user_id",
+            "provider_id",
+            "issuer",
+            "subject",
+            "verified_email",
+            "normalized_verified_email",
+            "created_at",
+            "last_used_at",
+            "revoked_at",
+        ],
+        &[
+            Kind::Uuid,
+            Kind::Uuid,
+            Kind::Uuid,
+            Kind::Text,
+            Kind::Text,
+            Kind::Text,
+            Kind::Text,
+            Kind::Text,
+            Kind::Timestamp,
+            Kind::OptionalTimestamp,
+            Kind::OptionalTimestamp,
+        ],
+    ),
+    table(
+        "federated_link_challenges",
+        &[
+            "realm_id",
+            "digest",
+            "user_id",
+            "identity_id",
+            "provider_id",
+            "issuer",
+            "subject",
+            "verified_email",
+            "normalized_verified_email",
+            "expires_at",
+            "created_at",
+            "consumed_at",
+        ],
+        &[
+            "realm_id",
+            "digest",
+            "user_id",
+            "identity_id",
+            "provider_id",
+            "issuer",
+            "subject",
+            "verified_email",
+            "normalized_verified_email",
+            "expires_at",
+            "created_at",
+            "consumed_at",
+        ],
+        &[
+            Kind::Uuid,
+            Kind::Bytes,
+            Kind::Uuid,
+            Kind::Uuid,
+            Kind::Text,
+            Kind::Text,
+            Kind::Text,
+            Kind::Text,
             Kind::Text,
             Kind::Timestamp,
             Kind::Timestamp,
+            Kind::OptionalTimestamp,
         ],
     ),
     table(
@@ -1259,6 +1346,7 @@ mod tests {
             Connection::open(file.path()).map_err(|_| AuthError::storage_unavailable())?;
         let realm_id = Uuid::now_v7().to_string();
         let user_id = Uuid::now_v7().to_string();
+        let identity_id = Uuid::now_v7().to_string();
         let event_id = Uuid::now_v7().to_string();
         let audit_id = Uuid::now_v7().to_string();
         let now = Utc::now().to_rfc3339();
@@ -1266,6 +1354,18 @@ mod tests {
             .execute(
                 "INSERT INTO users(realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
                 params![realm_id, user_id, "migration@example.com", "migration@example.com", 1_i64, "$argon2id$test", now, now],
+            )
+            .map_err(|_| AuthError::storage_unavailable())?;
+        connection
+            .execute(
+                "INSERT INTO federated_identities(realm_id,id,user_id,provider_id,issuer,subject,verified_email,normalized_verified_email,created_at,last_used_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                params![realm_id, identity_id, user_id, "google", "https://accounts.google.com", "provider-subject", "migration@example.com", "migration@example.com", now, now, Option::<String>::None],
+            )
+            .map_err(|_| AuthError::storage_unavailable())?;
+        connection
+            .execute(
+                "INSERT INTO federated_link_challenges(realm_id,digest,user_id,identity_id,provider_id,issuer,subject,verified_email,normalized_verified_email,expires_at,created_at,consumed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                params![realm_id, vec![7_u8; 32], user_id, Uuid::now_v7().to_string(), "github", "https://github.com", "123456", "migration@example.com", "migration@example.com", now, now, now],
             )
             .map_err(|_| AuthError::storage_unavailable())?;
         connection
@@ -1290,12 +1390,24 @@ mod tests {
         let pool = connect_target(&database_url, true).await?;
         ensure_target_empty(&pool).await?;
         set_import_status(&pool, "in_progress", None).await?;
-        assert_eq!(import_all(&source, &pool).await?, 3);
+        assert_eq!(import_all(&source, &pool).await?, 5);
         let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
             .fetch_one(&pool)
             .await
             .map_err(|_| AuthError::storage_unavailable())?;
         assert_eq!(users, 1);
+        let federated_identities: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM federated_identities")
+                .fetch_one(&pool)
+                .await
+                .map_err(|_| AuthError::storage_unavailable())?;
+        assert_eq!(federated_identities, 1);
+        let federated_link_challenges: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM federated_link_challenges")
+                .fetch_one(&pool)
+                .await
+                .map_err(|_| AuthError::storage_unavailable())?;
+        assert_eq!(federated_link_challenges, 1);
         pool.close().await;
         source
             .execute_batch("ROLLBACK")

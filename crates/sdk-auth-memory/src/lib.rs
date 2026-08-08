@@ -13,16 +13,18 @@ use sdk_auth_authorization::{
 };
 use sdk_auth_core::{
     AccessTokenRecord, ActivateTotp, ApiKeyAuthentication, AttemptDecision, AuditStore,
-    BootstrapIam, ChallengeStore, ClaimEventsRequest, ClaimedEvent, CompleteMfaLogin,
-    CompletePasskeyAuthentication, CompletePasskeyRegistration, CreateApiKey, CreatePermission,
-    CreateRole, CreateServiceAccount, CreateSession, CreateTrustedDevice, CreateUser, EventStore,
-    IamStore, IdentityStore, LeasedEventStore, LoginAttemptPolicy, MfaChallengeLookup,
-    MfaCompletionOutcome, MfaEnrollmentOutcome, MfaStore, OneTimeChallenge, OneTimeOutcome,
-    PasskeyAuthenticationOutcome, PasskeyCeremonyKind, PasskeyCeremonyLookup,
-    PasskeyRegistrationOutcome, PasskeyStore, PendingPasskeyCeremony, PendingTotpEnrollment,
-    RateLimitStore, RefreshRotation, RotateApiKey, RotateTrustedLogin, SessionStore, StoredApiKey,
-    StoredMfaLoginChallenge, StoredPasskey, StoredTotpFactor, StoredUser, TrustedLoginOutcome,
-    UnitOfWorkCapabilities, UnitOfWorkStore, VerifiedMfaProof,
+    BootstrapIam, ChallengeStore, ClaimEventsRequest, ClaimedEvent, CompleteFederatedLink,
+    CompleteMfaLogin, CompletePasskeyAuthentication, CompletePasskeyRegistration, CreateApiKey,
+    CreatePermission, CreateRole, CreateServiceAccount, CreateSession, CreateTrustedDevice,
+    CreateUser, EventStore, FederatedIdentity, FederatedLinkResolution,
+    FederatedRegistrationResolution, FederatedResolution, FederationStore, IamStore, IdentityStore,
+    LeasedEventStore, LoginAttemptPolicy, MfaChallengeLookup, MfaCompletionOutcome,
+    MfaEnrollmentOutcome, MfaStore, OneTimeChallenge, OneTimeOutcome, PasskeyAuthenticationOutcome,
+    PasskeyCeremonyKind, PasskeyCeremonyLookup, PasskeyRegistrationOutcome, PasskeyStore,
+    PendingFederatedLink, PendingPasskeyCeremony, PendingTotpEnrollment, RateLimitStore,
+    RefreshRotation, RegisterFederatedUser, RotateApiKey, RotateTrustedLogin, SessionStore,
+    StoredApiKey, StoredMfaLoginChallenge, StoredPasskey, StoredTotpFactor, StoredUser,
+    TrustedLoginOutcome, UnitOfWorkCapabilities, UnitOfWorkStore, VerifiedMfaProof,
 };
 use sdk_auth_crypto::TokenDigest;
 use sdk_auth_error::{AuthError, ErrorCode};
@@ -82,6 +84,8 @@ struct State {
     passkeys: HashMap<(RealmId, PasskeyId), StoredPasskey>,
     passkey_credential_ids: HashMap<Vec<u8>, (RealmId, PasskeyId)>,
     passkey_ceremonies: HashMap<(RealmId, TokenDigest), PasskeyCeremonyRecord>,
+    federated_identities: HashMap<(RealmId, String, String), FederatedIdentity>,
+    federated_links: HashMap<(RealmId, TokenDigest), FederatedLinkRecord>,
 }
 
 struct SessionRecord {
@@ -137,6 +141,11 @@ struct PasskeyCeremonyRecord {
     consumed_at: Option<DateTime<Utc>>,
 }
 
+struct FederatedLinkRecord {
+    pending: PendingFederatedLink,
+    consumed_at: Option<DateTime<Utc>>,
+}
+
 #[async_trait]
 impl IdentityStore for MemoryAuthStore {
     async fn create_user(&self, command: CreateUser) -> Result<(), AuthError> {
@@ -172,7 +181,7 @@ impl IdentityStore for MemoryAuthStore {
             key,
             StoredUser {
                 user: command.user,
-                password_hash: command.password_hash,
+                password_hash: Some(command.password_hash),
             },
         );
         Ok(())
@@ -216,9 +225,141 @@ impl IdentityStore for MemoryAuthStore {
         let Some(stored) = state.users.get_mut(&(realm_id, email)) else {
             return Err(AuthError::storage_unavailable());
         };
-        stored.password_hash = password_hash;
+        stored.password_hash = Some(password_hash);
         stored.user.updated_at = updated_at;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl FederationStore for MemoryAuthStore {
+    async fn begin_federated_link(
+        &self,
+        mut pending: PendingFederatedLink,
+    ) -> Result<FederatedResolution, AuthError> {
+        let mut state = self.state.lock().await;
+        let identity_key = (
+            pending.realm_id,
+            pending.identity.issuer.clone(),
+            pending.identity.subject.clone(),
+        );
+        if let Some(identity) = state.federated_identities.get(&identity_key) {
+            return Ok(FederatedResolution::KnownIdentity(identity.user_id));
+        }
+        let user_key = (
+            pending.realm_id,
+            pending.verified_email.normalized().to_owned(),
+        );
+        let Some(user_id) = state.users.get(&user_key).map(|stored| stored.user.id) else {
+            return Ok(FederatedResolution::RegistrationRequired);
+        };
+        pending.user_id = user_id;
+        state.federated_links.retain(|_, existing| {
+            existing.pending.realm_id != pending.realm_id
+                || existing.pending.identity != pending.identity
+                || existing.pending.user_id != user_id
+                || existing.consumed_at.is_some()
+        });
+        state.federated_links.insert(
+            (pending.realm_id, pending.digest),
+            FederatedLinkRecord {
+                pending,
+                consumed_at: None,
+            },
+        );
+        Ok(FederatedResolution::LinkRequired(user_id))
+    }
+
+    async fn complete_federated_link(
+        &self,
+        command: CompleteFederatedLink,
+    ) -> Result<FederatedLinkResolution, AuthError> {
+        let mut state = self.state.lock().await;
+        let record_key = (command.realm_id, command.digest);
+        let Some(record) = state.federated_links.get(&record_key) else {
+            return Ok(FederatedLinkResolution::Invalid);
+        };
+        if record.consumed_at.is_some() {
+            return Ok(FederatedLinkResolution::Reused);
+        }
+        if record.pending.expires_at <= command.now {
+            return Ok(FederatedLinkResolution::Expired);
+        }
+        if record.pending.user_id != command.user_id {
+            return Ok(FederatedLinkResolution::Invalid);
+        }
+        let pending = record.pending.clone();
+        let identity_key = (
+            pending.realm_id,
+            pending.identity.issuer.clone(),
+            pending.identity.subject.clone(),
+        );
+        if let Some(existing) = state.federated_identities.get(&identity_key) {
+            return if existing.user_id == command.user_id {
+                Ok(FederatedLinkResolution::Reused)
+            } else {
+                Ok(FederatedLinkResolution::Conflict)
+            };
+        }
+        let identity = FederatedIdentity {
+            id: pending.identity_id,
+            realm_id: pending.realm_id,
+            user_id: command.user_id,
+            provider_id: pending.provider_id,
+            issuer: pending.identity.issuer,
+            subject: pending.identity.subject,
+            verified_email: pending.verified_email,
+            created_at: command.now,
+            last_used_at: None,
+            revoked_at: None,
+        };
+        let Some(record) = state.federated_links.get_mut(&record_key) else {
+            return Err(AuthError::storage_unavailable());
+        };
+        record.consumed_at = Some(command.now);
+        state
+            .federated_identities
+            .insert(identity_key, identity.clone());
+        state.audit_records.push(command.audit);
+        Ok(FederatedLinkResolution::Linked(Box::new(identity)))
+    }
+
+    async fn register_federated_user(
+        &self,
+        command: RegisterFederatedUser,
+    ) -> Result<FederatedRegistrationResolution, AuthError> {
+        let mut state = self.state.lock().await;
+        let user_key = (
+            command.user.realm_id,
+            command.user.email.normalized().to_owned(),
+        );
+        let identity_key = (
+            command.identity.realm_id,
+            command.identity.issuer.clone(),
+            command.identity.subject.clone(),
+        );
+        if state.users.contains_key(&user_key)
+            || state.federated_identities.contains_key(&identity_key)
+        {
+            return Ok(FederatedRegistrationResolution::Retry);
+        }
+        insert_session(&mut state, command.session)?;
+        state.user_emails.insert(
+            (command.user.realm_id, command.user.id),
+            command.user.email.normalized().to_owned(),
+        );
+        state.users.insert(
+            user_key,
+            StoredUser {
+                user: command.user,
+                password_hash: None,
+            },
+        );
+        state
+            .federated_identities
+            .insert(identity_key, command.identity);
+        push_events(&mut state, vec![command.event]);
+        Ok(FederatedRegistrationResolution::Registered)
     }
 }
 
@@ -481,7 +622,7 @@ impl ChallengeStore for MemoryAuthStore {
         let Some(stored) = state.users.get_mut(&(realm_id, email)) else {
             return Err(AuthError::storage_unavailable());
         };
-        stored.password_hash = new_password_hash;
+        stored.password_hash = Some(new_password_hash);
         stored.user.updated_at = now;
         for ((session_realm, _), session) in &mut state.sessions {
             if *session_realm == realm_id && session.session.user_id == user_id {

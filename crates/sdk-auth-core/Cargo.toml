@@ -19,6 +19,7 @@ sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0" }
 sdk-auth-validation = { path = "../sdk-auth-validation", version = "=0.6.0" }
 serde.workspace = true
 tracing.workspace = true
+url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

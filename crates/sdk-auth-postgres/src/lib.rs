@@ -4,6 +4,7 @@
 //! missing, incompatible, or partially imported schemas.
 
 mod config;
+mod federation;
 mod iam;
 mod identity;
 mod journal;
@@ -22,6 +23,8 @@ const REQUIRED_TABLES: &[&str] = &[
     "access_tokens",
     "audit_log",
     "challenges",
+    "federated_identities",
+    "federated_link_challenges",
     "iam_api_key_scopes",
     "iam_api_keys",
     "iam_permissions",

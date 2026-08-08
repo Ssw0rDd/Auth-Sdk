@@ -2,6 +2,8 @@
 
 #[path = "../../sdk-auth-testing/tests/auth_contract.rs"]
 mod auth_contract;
+#[path = "../../sdk-auth-testing/tests/federation_contract.rs"]
+mod federation_contract;
 #[path = "../../sdk-auth-testing/tests/iam_contract.rs"]
 mod iam_contract;
 #[path = "../../sdk-auth-testing/tests/passkey_contract.rs"]
@@ -29,6 +31,7 @@ async fn postgres_satisfies_full_contract() -> Result<(), AuthError> {
     auth_contract::exercise_mfa_contract(Arc::clone(&auth_store)).await?;
     auth_contract::exercise_vault_rewrap(Arc::clone(&auth_store)).await?;
     auth_contract::exercise_mfa_management(auth_store).await?;
+    federation_contract::federation_contract(Arc::clone(&store)).await?;
     iam_contract::exercise(Arc::clone(&store)).await?;
     iam_contract::bootstrap_race(Arc::clone(&store)).await?;
     passkey_contract::exercise(Arc::clone(&store)).await?;

@@ -5,6 +5,7 @@
 
 mod config;
 mod facades;
+mod federation;
 mod iam;
 mod model;
 mod ports;
@@ -16,6 +17,13 @@ pub use config::{AuthConfig, LoginAttemptPolicy};
 pub use facades::{
     AuditService, AuthenticationService, AuthenticatorService, IdentityService, OutboxService,
     RecoveryService, SessionService,
+};
+pub use federation::{
+    BeginFederatedLoginRequest, CompleteFederatedLink, CompleteFederatedLinkRequest,
+    FederatedIdentity, FederatedIdentityKey, FederatedLinkDispatch, FederatedLinkProof,
+    FederatedLinkResolution, FederatedLoginOutcome, FederatedRegistrationResolution,
+    FederatedResolution, FederationConfig, FederationService, FederationStore,
+    PendingFederatedLink, RegisterFederatedUser, VerifiedFederatedClaims,
 };
 pub use iam::{
     ApiKeyAuthentication, ApiKeyGrant, AuthorizationConfig, AuthorizationCredential,

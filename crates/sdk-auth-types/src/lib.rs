@@ -87,6 +87,10 @@ id_type!(
 );
 id_type!(PasskeyId, "Stable identifier for a WebAuthn passkey.");
 id_type!(
+    FederatedIdentityId,
+    "Stable identifier for a linked external identity."
+);
+id_type!(
     ServiceAccountId,
     "Stable identifier for a non-human principal inside a realm."
 );
@@ -302,6 +306,8 @@ pub enum AuthenticationMethod {
     PasswordTrustedDevice,
     /// A WebAuthn passkey ceremony with mandatory local user verification.
     Passkey,
+    /// A verified external provider identity. Provider assurance is treated conservatively.
+    Federated,
 }
 
 /// Authentication Assurance Level conservatively established by a session.
@@ -372,9 +378,9 @@ impl Session {
     #[must_use]
     pub const fn assurance(&self) -> AuthenticationAssurance {
         let level = match self.authentication_method {
-            AuthenticationMethod::Password | AuthenticationMethod::PasswordTrustedDevice => {
-                AssuranceLevel::Aal1
-            }
+            AuthenticationMethod::Password
+            | AuthenticationMethod::PasswordTrustedDevice
+            | AuthenticationMethod::Federated => AssuranceLevel::Aal1,
             AuthenticationMethod::PasswordTotp | AuthenticationMethod::PasswordRecoveryCode => {
                 AssuranceLevel::Aal2
             }
@@ -480,6 +486,10 @@ pub enum AuthEventKind {
     PasskeyRevoked,
     /// Record and reject a non-monotonic WebAuthn signature counter.
     PasskeyCloneSuspected,
+    /// Record an explicit external-identity link after fresh account proof.
+    FederatedIdentityLinked,
+    /// Record first-time creation of a provider-backed user and identity.
+    FederatedUserRegistered,
     /// Notify that a realm completed its one-time IAM bootstrap.
     IamRealmBootstrapped,
     /// Record a permission catalog mutation.

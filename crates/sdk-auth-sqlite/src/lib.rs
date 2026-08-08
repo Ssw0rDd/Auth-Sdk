@@ -15,27 +15,31 @@ use sdk_auth_authorization::{
 use sdk_auth_core::{
     AccessTokenRecord, ActivateTotp, ApiKeyAuthentication, AttemptDecision, AuditStore,
     BootstrapIam, ChallengeKind, ChallengeStore, ClaimEventsRequest, ClaimedEvent,
-    CompleteMfaLogin, CompletePasskeyAuthentication, CompletePasskeyRegistration, CreateApiKey,
-    CreatePermission, CreateRole, CreateServiceAccount, CreateSession, CreateTrustedDevice,
-    CreateUser, EventStore, IamStore, IdentityStore, LeasedEventStore, LoginAttemptPolicy,
-    MfaChallengeLookup, MfaCompletionOutcome, MfaEnrollmentOutcome, MfaStore, OneTimeChallenge,
-    OneTimeOutcome, PasskeyAuthenticationOutcome, PasskeyCeremonyKind, PasskeyCeremonyLookup,
-    PasskeyRegistrationOutcome, PasskeyStore, PendingPasskeyCeremony, PendingTotpEnrollment,
-    RateLimitStore, RefreshRotation, RotateApiKey, RotateTrustedLogin, SessionStore, StoredApiKey,
-    StoredMfaLoginChallenge, StoredPasskey, StoredTotpFactor, StoredUser, TrustedLoginOutcome,
-    UnitOfWorkCapabilities, UnitOfWorkStore, VerifiedMfaProof,
+    CompleteFederatedLink, CompleteMfaLogin, CompletePasskeyAuthentication,
+    CompletePasskeyRegistration, CreateApiKey, CreatePermission, CreateRole, CreateServiceAccount,
+    CreateSession, CreateTrustedDevice, CreateUser, EventStore, FederatedIdentity,
+    FederatedLinkResolution, FederatedRegistrationResolution, FederatedResolution, FederationStore,
+    IamStore, IdentityStore, LeasedEventStore, LoginAttemptPolicy, MfaChallengeLookup,
+    MfaCompletionOutcome, MfaEnrollmentOutcome, MfaStore, OneTimeChallenge, OneTimeOutcome,
+    PasskeyAuthenticationOutcome, PasskeyCeremonyKind, PasskeyCeremonyLookup,
+    PasskeyRegistrationOutcome, PasskeyStore, PendingFederatedLink, PendingPasskeyCeremony,
+    PendingTotpEnrollment, RateLimitStore, RefreshRotation, RegisterFederatedUser, RotateApiKey,
+    RotateTrustedLogin, SessionStore, StoredApiKey, StoredMfaLoginChallenge, StoredPasskey,
+    StoredTotpFactor, StoredUser, TrustedLoginOutcome, UnitOfWorkCapabilities, UnitOfWorkStore,
+    VerifiedMfaProof,
 };
 use sdk_auth_crypto::{AeadAlgorithm, SealedSecret, TokenDigest};
 use sdk_auth_error::{AuthError, ErrorCode};
 use sdk_auth_types::{
     ApiKeyId, AuditActor, AuditId, AuditOutcome, AuditRecord, AuthEvent, AuthEventKind,
-    AuthenticationMethod, DeviceContext, EmailAddress, EventId, MfaEnrollmentId, MfaFactorId,
-    OutboxClaimId, Passkey, PasskeyId, PermissionId, RealmId, RoleId, ServiceAccountId, Session,
-    SessionId, TokenFamilyId, TrustedDevice, TrustedDeviceId, User, UserId,
+    AuthenticationMethod, DeviceContext, EmailAddress, EventId, FederatedIdentityId,
+    MfaEnrollmentId, MfaFactorId, OutboxClaimId, Passkey, PasskeyId, PermissionId, RealmId, RoleId,
+    ServiceAccountId, Session, SessionId, TokenFamilyId, TrustedDevice, TrustedDeviceId, User,
+    UserId,
 };
 
 /// Current persistent schema understood by this adapter.
-pub const LATEST_SCHEMA_VERSION: u32 = 6;
+pub const LATEST_SCHEMA_VERSION: u32 = 7;
 
 const MIGRATION_1: &str = r#"
 PRAGMA foreign_keys=ON;
@@ -233,6 +237,42 @@ ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,
  min_reader_version=excluded.min_reader_version,min_writer_version=excluded.min_writer_version;
 "#;
 
+const MIGRATION_7: &str = r#"
+ALTER TABLE users RENAME TO users_v6;
+CREATE TABLE users(
+ realm_id TEXT NOT NULL,id TEXT NOT NULL,email TEXT NOT NULL,normalized_email TEXT NOT NULL,
+ email_verified INTEGER NOT NULL CHECK(email_verified IN(0,1)),password_hash TEXT,
+ created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ PRIMARY KEY(realm_id,id),UNIQUE(realm_id,normalized_email));
+INSERT INTO users(
+ realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at)
+SELECT realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at
+FROM users_v6;
+DROP TABLE users_v6;
+CREATE TABLE federated_identities(
+ realm_id TEXT NOT NULL,id TEXT NOT NULL,user_id TEXT NOT NULL,provider_id TEXT NOT NULL,
+ issuer TEXT NOT NULL,subject TEXT NOT NULL,verified_email TEXT NOT NULL,
+ normalized_verified_email TEXT NOT NULL,created_at TEXT NOT NULL,last_used_at TEXT,revoked_at TEXT,
+ PRIMARY KEY(realm_id,id),UNIQUE(realm_id,issuer,subject),
+ FOREIGN KEY(realm_id,user_id) REFERENCES users(realm_id,id) ON DELETE CASCADE);
+CREATE INDEX federated_identity_user_idx
+ ON federated_identities(realm_id,user_id,revoked_at,created_at DESC);
+CREATE TABLE federated_link_challenges(
+ realm_id TEXT NOT NULL,digest BLOB NOT NULL CHECK(length(digest)=32),user_id TEXT NOT NULL,
+ identity_id TEXT NOT NULL,provider_id TEXT NOT NULL,issuer TEXT NOT NULL,subject TEXT NOT NULL,
+ verified_email TEXT NOT NULL,normalized_verified_email TEXT NOT NULL,expires_at TEXT NOT NULL,
+ created_at TEXT NOT NULL,consumed_at TEXT,PRIMARY KEY(realm_id,digest),
+ FOREIGN KEY(realm_id,user_id) REFERENCES users(realm_id,id) ON DELETE CASCADE);
+CREATE INDEX federated_link_user_idx
+ ON federated_link_challenges(realm_id,user_id,consumed_at,created_at DESC);
+CREATE INDEX federated_link_identity_idx
+ ON federated_link_challenges(realm_id,issuer,subject,consumed_at);
+INSERT INTO sdk_schema_compatibility(singleton,schema_version,min_reader_version,min_writer_version)
+VALUES(1,7,7,7)
+ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,
+ min_reader_version=excluded.min_reader_version,min_writer_version=excluded.min_writer_version;
+"#;
+
 /// Result returned by an explicit schema migration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationReport {
@@ -385,6 +425,242 @@ impl IdentityStore for SqliteAuthStore {
             } else {
                 Err(AuthError::storage_unavailable())
             }
+        })
+        .await
+    }
+}
+
+#[async_trait]
+impl FederationStore for SqliteAuthStore {
+    async fn begin_federated_link(
+        &self,
+        pending: PendingFederatedLink,
+    ) -> Result<FederatedResolution, AuthError> {
+        self.run(move |connection| {
+            let transaction = immediate(connection)?;
+            let linked_user = transaction
+                .query_row(
+                    "SELECT user_id FROM federated_identities WHERE realm_id=? AND issuer=? AND subject=? AND revoked_at IS NULL",
+                    params![
+                        pending.realm_id.to_string(),
+                        pending.identity.issuer.as_str(),
+                        pending.identity.subject.as_str()
+                    ],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            if let Some(user_id) = linked_user {
+                return Ok(FederatedResolution::KnownIdentity(UserId::parse(&user_id)?));
+            }
+            let matched_user = transaction
+                .query_row(
+                    "SELECT id FROM users WHERE realm_id=? AND normalized_email=?",
+                    params![
+                        pending.realm_id.to_string(),
+                        pending.verified_email.normalized()
+                    ],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            let Some(user_id) = matched_user else {
+                return Ok(FederatedResolution::RegistrationRequired);
+            };
+            let user_id = UserId::parse(&user_id)?;
+            transaction
+                .execute(
+                    "DELETE FROM federated_link_challenges WHERE realm_id=? AND user_id=? AND issuer=? AND subject=? AND consumed_at IS NULL",
+                    params![
+                        pending.realm_id.to_string(),
+                        user_id.to_string(),
+                        pending.identity.issuer.as_str(),
+                        pending.identity.subject.as_str()
+                    ],
+                )
+                .map_err(storage)?;
+            transaction
+                .execute(
+                    "INSERT INTO federated_link_challenges(realm_id,digest,user_id,identity_id,provider_id,issuer,subject,verified_email,normalized_verified_email,expires_at,created_at,consumed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL)",
+                    params![
+                        pending.realm_id.to_string(),
+                        pending.digest.as_bytes().as_slice(),
+                        user_id.to_string(),
+                        pending.identity_id.to_string(),
+                        pending.provider_id.as_str(),
+                        pending.identity.issuer.as_str(),
+                        pending.identity.subject.as_str(),
+                        pending.verified_email.as_str(),
+                        pending.verified_email.normalized(),
+                        ts(pending.expires_at),
+                        ts(pending.created_at)
+                    ],
+                )
+                .map_err(storage)?;
+            transaction.commit().map_err(storage)?;
+            Ok(FederatedResolution::LinkRequired(user_id))
+        })
+        .await
+    }
+
+    async fn complete_federated_link(
+        &self,
+        command: CompleteFederatedLink,
+    ) -> Result<FederatedLinkResolution, AuthError> {
+        self.run(move |connection| {
+            let transaction = immediate(connection)?;
+            let stored = transaction
+                .query_row(
+                    "SELECT user_id,identity_id,provider_id,issuer,subject,verified_email,expires_at,created_at,consumed_at FROM federated_link_challenges WHERE realm_id=? AND digest=?",
+                    params![
+                        command.realm_id.to_string(),
+                        command.digest.as_bytes().as_slice()
+                    ],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                            row.get::<_, String>(6)?,
+                            row.get::<_, String>(7)?,
+                            row.get::<_, Option<String>>(8)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(storage)?;
+            let Some((
+                user_text,
+                identity_text,
+                provider_id,
+                issuer,
+                subject,
+                verified_email,
+                expires_at,
+                _created_at,
+                consumed_at,
+            )) = stored
+            else {
+                return Ok(FederatedLinkResolution::Invalid);
+            };
+            if consumed_at.is_some() {
+                return Ok(FederatedLinkResolution::Reused);
+            }
+            if parse_ts(&expires_at)? <= command.now {
+                return Ok(FederatedLinkResolution::Expired);
+            }
+            let user_id = UserId::parse(&user_text)?;
+            if user_id != command.user_id {
+                return Ok(FederatedLinkResolution::Invalid);
+            }
+            let existing = transaction
+                .query_row(
+                    "SELECT user_id FROM federated_identities WHERE realm_id=? AND issuer=? AND subject=?",
+                    params![command.realm_id.to_string(), issuer.as_str(), subject.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            if let Some(existing_user) = existing {
+                return if UserId::parse(&existing_user)? == command.user_id {
+                    Ok(FederatedLinkResolution::Reused)
+                } else {
+                    Ok(FederatedLinkResolution::Conflict)
+                };
+            }
+            let changed = transaction
+                .execute(
+                    "UPDATE federated_link_challenges SET consumed_at=? WHERE realm_id=? AND digest=? AND consumed_at IS NULL",
+                    params![
+                        ts(command.now),
+                        command.realm_id.to_string(),
+                        command.digest.as_bytes().as_slice()
+                    ],
+                )
+                .map_err(storage)?;
+            if changed != 1 {
+                return Err(AuthError::storage_unavailable());
+            }
+            let email = EmailAddress::parse(verified_email)
+                .map_err(|_| AuthError::storage_unavailable())?;
+            let identity = FederatedIdentity {
+                id: FederatedIdentityId::parse(&identity_text)?,
+                realm_id: command.realm_id,
+                user_id: command.user_id,
+                provider_id,
+                issuer,
+                subject,
+                verified_email: email.clone(),
+                created_at: command.now,
+                last_used_at: None,
+                revoked_at: None,
+            };
+            transaction
+                .execute(
+                    "INSERT INTO federated_identities(realm_id,id,user_id,provider_id,issuer,subject,verified_email,normalized_verified_email,created_at,last_used_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,NULL,NULL)",
+                    params![
+                        identity.realm_id.to_string(),
+                        identity.id.to_string(),
+                        identity.user_id.to_string(),
+                        identity.provider_id.as_str(),
+                        identity.issuer.as_str(),
+                        identity.subject.as_str(),
+                        identity.verified_email.as_str(),
+                        identity.verified_email.normalized(),
+                        ts(identity.created_at)
+                    ],
+                )
+                .map_err(storage)?;
+            insert_audit(&transaction, &command.audit)?;
+            transaction.commit().map_err(storage)?;
+            Ok(FederatedLinkResolution::Linked(Box::new(identity)))
+        })
+        .await
+    }
+
+    async fn register_federated_user(
+        &self,
+        command: RegisterFederatedUser,
+    ) -> Result<FederatedRegistrationResolution, AuthError> {
+        self.run(move |connection| {
+            let transaction = immediate(connection)?;
+            let inserted_user = transaction.execute(
+                "INSERT INTO users(realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,NULL,?,?)",
+                params![command.user.realm_id.to_string(),command.user.id.to_string(),command.user.email.as_str(),command.user.email.normalized(),i64::from(command.user.email_verified),ts(command.user.created_at),ts(command.user.updated_at)],
+            );
+            match inserted_user {
+                Ok(1) => {}
+                Err(error)
+                    if error.sqlite_error_code()
+                        == Some(rusqlite::ErrorCode::ConstraintViolation) =>
+                {
+                    return Ok(FederatedRegistrationResolution::Retry);
+                }
+                Err(error) => return Err(storage(error)),
+                Ok(_) => return Err(AuthError::storage_unavailable()),
+            }
+            let inserted_identity = transaction.execute(
+                "INSERT INTO federated_identities(realm_id,id,user_id,provider_id,issuer,subject,verified_email,normalized_verified_email,created_at,last_used_at,revoked_at) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)",
+                params![command.identity.realm_id.to_string(),command.identity.id.to_string(),command.identity.user_id.to_string(),command.identity.provider_id.as_str(),command.identity.issuer.as_str(),command.identity.subject.as_str(),command.identity.verified_email.as_str(),command.identity.verified_email.normalized(),ts(command.identity.created_at),command.identity.last_used_at.map(ts)],
+            );
+            match inserted_identity {
+                Ok(1) => {}
+                Err(error)
+                    if error.sqlite_error_code()
+                        == Some(rusqlite::ErrorCode::ConstraintViolation) =>
+                {
+                    return Ok(FederatedRegistrationResolution::Retry);
+                }
+                Err(error) => return Err(storage(error)),
+                Ok(_) => return Err(AuthError::storage_unavailable()),
+            }
+            insert_session(&transaction, &command.session)?;
+            insert_event(&transaction, &command.event)?;
+            transaction.commit().map_err(storage)?;
+            Ok(FederatedRegistrationResolution::Registered)
         })
         .await
     }
@@ -2922,11 +3198,49 @@ fn migrate_connection(connection: &mut Connection) -> Result<MigrationReport, Au
         transaction.commit().map_err(storage)?;
         applied.push(6);
     }
+    if from < 7 {
+        migrate_seven(connection)?;
+        applied.push(7);
+    }
     Ok(MigrationReport {
         from,
         to: LATEST_SCHEMA_VERSION,
         applied,
     })
+}
+
+fn migrate_seven(connection: &mut Connection) -> Result<(), AuthError> {
+    connection
+        .pragma_update(None, "foreign_keys", "OFF")
+        .map_err(storage)?;
+    connection
+        .pragma_update(None, "legacy_alter_table", "ON")
+        .map_err(storage)?;
+    let migration_result = (|| {
+        let transaction = immediate(connection)?;
+        transaction.execute_batch(MIGRATION_7).map_err(storage)?;
+        transaction
+            .pragma_update(None, "user_version", 7_u32)
+            .map_err(storage)?;
+        transaction.commit().map_err(storage)
+    })();
+    let restore_result = connection
+        .pragma_update(None, "legacy_alter_table", "OFF")
+        .and_then(|()| connection.pragma_update(None, "foreign_keys", "ON"))
+        .map_err(storage);
+    migration_result?;
+    restore_result?;
+    let has_broken_reference = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(storage)?;
+    if has_broken_reference {
+        return Err(AuthError::schema_incompatible());
+    }
+    Ok(())
 }
 
 fn ensure_session_column(
@@ -3631,7 +3945,7 @@ fn stored_user(
     let id: String = row.get(0)?;
     let email: String = row.get(1)?;
     let verified: i64 = row.get(2)?;
-    let password_hash: String = row.get(3)?;
+    let password_hash: Option<String> = row.get(3)?;
     let created: String = row.get(4)?;
     let updated: String = row.get(5)?;
     Ok((|| {
@@ -3795,6 +4109,8 @@ fn event_name(kind: AuthEventKind) -> Result<&'static str, AuthError> {
         AuthEventKind::PasskeyRenamed => "passkey_renamed",
         AuthEventKind::PasskeyRevoked => "passkey_revoked",
         AuthEventKind::PasskeyCloneSuspected => "passkey_clone_suspected",
+        AuthEventKind::FederatedIdentityLinked => "federated_identity_linked",
+        AuthEventKind::FederatedUserRegistered => "federated_user_registered",
         AuthEventKind::IamRealmBootstrapped => "iam_realm_bootstrapped",
         AuthEventKind::IamPermissionChanged => "iam_permission_changed",
         AuthEventKind::IamRoleChanged => "iam_role_changed",
@@ -3827,6 +4143,8 @@ fn parse_event_name(value: &str) -> Result<AuthEventKind, AuthError> {
         "passkey_renamed" => Ok(AuthEventKind::PasskeyRenamed),
         "passkey_revoked" => Ok(AuthEventKind::PasskeyRevoked),
         "passkey_clone_suspected" => Ok(AuthEventKind::PasskeyCloneSuspected),
+        "federated_identity_linked" => Ok(AuthEventKind::FederatedIdentityLinked),
+        "federated_user_registered" => Ok(AuthEventKind::FederatedUserRegistered),
         "iam_realm_bootstrapped" => Ok(AuthEventKind::IamRealmBootstrapped),
         "iam_permission_changed" => Ok(AuthEventKind::IamPermissionChanged),
         "iam_role_changed" => Ok(AuthEventKind::IamRoleChanged),
@@ -3845,6 +4163,7 @@ fn authentication_method_name(value: AuthenticationMethod) -> Result<&'static st
         AuthenticationMethod::PasswordRecoveryCode => "password_recovery_code",
         AuthenticationMethod::PasswordTrustedDevice => "password_trusted_device",
         AuthenticationMethod::Passkey => "passkey",
+        AuthenticationMethod::Federated => "federated",
         _ => return Err(AuthError::storage_unavailable()),
     })
 }
@@ -3856,6 +4175,7 @@ fn parse_authentication_method(value: &str) -> Result<AuthenticationMethod, Auth
         "password_recovery_code" => Ok(AuthenticationMethod::PasswordRecoveryCode),
         "password_trusted_device" => Ok(AuthenticationMethod::PasswordTrustedDevice),
         "passkey" => Ok(AuthenticationMethod::Passkey),
+        "federated" => Ok(AuthenticationMethod::Federated),
         _ => Err(AuthError::storage_unavailable()),
     }
 }
@@ -3879,11 +4199,99 @@ mod tests {
         let first = SqliteMigrator::migrate(&path)?;
         assert_eq!(first.from, 0);
         assert_eq!(first.to, LATEST_SCHEMA_VERSION);
-        assert_eq!(first.applied, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(first.applied, vec![1, 2, 3, 4, 5, 6, 7]);
         let _store = SqliteAuthStore::open(&path)?;
         let second = SqliteMigrator::migrate(&path)?;
         assert_eq!(second.from, LATEST_SCHEMA_VERSION);
         assert!(second.applied.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn migration_seven_makes_password_optional_without_breaking_user_foreign_keys()
+    -> Result<(), AuthError> {
+        let directory = tempfile::tempdir().map_err(|_| AuthError::storage_unavailable())?;
+        let path = directory.path().join("version-six.db");
+        let connection = Connection::open(&path).map_err(storage)?;
+        configure(&connection)?;
+        connection.execute_batch(MIGRATION_1).map_err(storage)?;
+        connection.execute_batch(MIGRATION_2).map_err(storage)?;
+        connection.execute_batch(MIGRATION_3).map_err(storage)?;
+        connection.execute_batch(MIGRATION_4).map_err(storage)?;
+        ensure_table_column(
+            &connection,
+            "mfa_totp_factors",
+            "format_version",
+            "INTEGER NOT NULL DEFAULT 1",
+        )?;
+        ensure_table_column(
+            &connection,
+            "mfa_totp_factors",
+            "algorithm",
+            "TEXT NOT NULL DEFAULT 'xchacha20_poly1305'",
+        )?;
+        ensure_table_column(
+            &connection,
+            "mfa_enrollments",
+            "format_version",
+            "INTEGER NOT NULL DEFAULT 1",
+        )?;
+        ensure_table_column(
+            &connection,
+            "mfa_enrollments",
+            "algorithm",
+            "TEXT NOT NULL DEFAULT 'xchacha20_poly1305'",
+        )?;
+        connection.execute_batch(MIGRATION_5).map_err(storage)?;
+        connection.execute_batch(MIGRATION_6).map_err(storage)?;
+        connection
+            .pragma_update(None, "user_version", 6_u32)
+            .map_err(storage)?;
+
+        let realm_id = RealmId::new();
+        let user_id = UserId::new();
+        let now = ts(Utc::now());
+        connection.execute(
+            "INSERT INTO users(realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            params![realm_id.to_string(),user_id.to_string(),"owner@example.com","owner@example.com",1_i64,"$argon2id$legacy",now,now],
+        ).map_err(storage)?;
+        connection.execute(
+            "INSERT INTO challenges(realm_id,digest,kind,user_id,expires_at,consumed_at) VALUES(?,?,?,?,?,NULL)",
+            params![realm_id.to_string(),vec![9_u8;32],"email_verification",user_id.to_string(),now],
+        ).map_err(storage)?;
+        drop(connection);
+
+        SqliteMigrator::migrate(&path)?;
+        let connection = Connection::open(&path).map_err(storage)?;
+        configure(&connection)?;
+        let password_not_null: i64 = connection
+            .query_row(
+                "SELECT \"notnull\" FROM pragma_table_info('users') WHERE name='password_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        assert_eq!(password_not_null, 0);
+        connection.execute(
+            "INSERT INTO users(realm_id,id,email,normalized_email,email_verified,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,NULL,?,?)",
+            params![realm_id.to_string(),UserId::new().to_string(),"social@example.com","social@example.com",1_i64,now,now],
+        ).map_err(storage)?;
+        let foreign_key_errors: i64 = connection
+            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .map_err(storage)?;
+        assert_eq!(foreign_key_errors, 0);
+        connection
+            .execute(
+                "DELETE FROM users WHERE realm_id=? AND id=?",
+                params![realm_id.to_string(), user_id.to_string()],
+            )
+            .map_err(storage)?;
+        let challenges: i64 = connection
+            .query_row("SELECT COUNT(*) FROM challenges", [], |row| row.get(0))
+            .map_err(storage)?;
+        assert_eq!(challenges, 0);
         Ok(())
     }
 
@@ -3963,7 +4371,7 @@ mod tests {
         drop(connection);
 
         let report = SqliteMigrator::migrate(&path)?;
-        assert_eq!(report.applied, vec![4, 5, 6]);
+        assert_eq!(report.applied, vec![4, 5, 6, 7]);
         let store = SqliteAuthStore::open(&path)?;
         let runtime =
             tokio::runtime::Runtime::new().map_err(|_| AuthError::storage_unavailable())?;
@@ -3992,12 +4400,12 @@ mod tests {
         let connection = Connection::open(&path).map_err(storage)?;
         connection
             .execute(
-                "UPDATE sdk_schema_compatibility SET schema_version=7,min_reader_version=6,min_writer_version=6 WHERE singleton=1",
+                "UPDATE sdk_schema_compatibility SET schema_version=8,min_reader_version=7,min_writer_version=7 WHERE singleton=1",
                 [],
             )
             .map_err(storage)?;
         connection
-            .pragma_update(None, "user_version", 7_u32)
+            .pragma_update(None, "user_version", 8_u32)
             .map_err(storage)?;
         drop(connection);
         let _compatible = SqliteAuthStore::open(&path)?;
@@ -4005,7 +4413,7 @@ mod tests {
         let connection = Connection::open(&path).map_err(storage)?;
         connection
             .execute(
-                "UPDATE sdk_schema_compatibility SET min_writer_version=7 WHERE singleton=1",
+                "UPDATE sdk_schema_compatibility SET min_writer_version=8 WHERE singleton=1",
                 [],
             )
             .map_err(storage)?;

@@ -2,6 +2,15 @@
 
 ## Atualização 0.7
 
+- Identidade externa usa issuer HTTPS exato mais subject estável; e-mail,
+  username, UPN e `preferred_username` nunca autenticam nem são chave durável.
+- E-mail verificado igual exige link explícito com sessão e prova fresca; não há
+  auto-link. Primeiro login sem conta grava usuário sem senha, identidade,
+  sessão, audit e outbox atomicamente.
+- Constraints de e-mail e issuer/subject mais retry tipado impedem duplicação em
+  corridas. Login local de conta sem senha usa fake verification.
+- Sessão de provedor permanece AAL1 até existir profile de assurance explícito;
+  claims do provedor não promovem MFA ou phishing resistance implicitamente.
 - O caminho padrão isola WebAuthn/OpenSSL dos crates portáveis e possui gate
   zero-setup em Windows, Linux e macOS.
 - O pacote Node público exigirá prebuilds assinados, checksums e proveniência;

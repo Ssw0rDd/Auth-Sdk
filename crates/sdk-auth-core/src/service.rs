@@ -129,9 +129,13 @@ impl AuthService {
             self.password_engine.fake_verify(&request.password)?;
             return Err(AuthError::invalid_credentials());
         };
+        let Some(password_hash) = stored.password_hash.as_deref() else {
+            self.password_engine.fake_verify(&request.password)?;
+            return Err(AuthError::invalid_credentials());
+        };
         if !self
             .password_engine
-            .verify(&request.password, &stored.password_hash)?
+            .verify(&request.password, password_hash)?
         {
             return Err(AuthError::invalid_credentials());
         }
@@ -144,7 +148,7 @@ impl AuthService {
                 false,
             ));
         }
-        if self.password_engine.needs_rehash(&stored.password_hash) {
+        if self.password_engine.needs_rehash(password_hash) {
             let replacement = self.password_engine.hash(&request.password)?;
             self.store
                 .update_password_hash(request.realm_id, stored.user.id, replacement, now)
@@ -1058,10 +1062,11 @@ impl AuthService {
             .find_user_by_id(validated.user.realm_id, validated.user.id)
             .await?
             .ok_or_else(AuthError::invalid_credentials)?;
-        if !self
-            .password_engine
-            .verify(password, &stored.password_hash)?
-        {
+        let Some(password_hash) = stored.password_hash.as_deref() else {
+            self.password_engine.fake_verify(password)?;
+            return Err(AuthError::invalid_credentials());
+        };
+        if !self.password_engine.verify(password, password_hash)? {
             return Err(AuthError::invalid_credentials());
         }
         self.clear_attempts(validated.user.realm_id, &subject)
@@ -1201,6 +1206,25 @@ impl AuthService {
                 }
             }
         }
+    }
+
+    pub(crate) async fn verify_federated_link_step_up(
+        &self,
+        realm_id: RealmId,
+        access_token: &SecretString,
+        proof: &crate::FederatedLinkProof,
+    ) -> Result<UserId, AuthError> {
+        let validated = self.validate_access(realm_id, access_token).await?;
+        if !validated.user.email_verified {
+            return Err(AuthError::new(
+                ErrorCode::AccountUnverified,
+                "the account must be verified",
+                false,
+            ));
+        }
+        self.verify_authenticator_management(&validated, proof, &self.config)
+            .await?;
+        Ok(validated.user.id)
     }
 
     pub(crate) async fn find_user_by_email(
@@ -1395,6 +1419,41 @@ impl AuthService {
             second_factor_verified_at,
             now,
         )
+    }
+
+    pub(crate) fn validate_external_device(
+        &self,
+        device: DeviceContext,
+    ) -> Result<DeviceContext, AuthError> {
+        validate_device(
+            device,
+            self.config.max_device_name_chars,
+            self.config.max_device_metadata_bytes,
+        )
+    }
+
+    pub(crate) async fn authenticate_external_user(
+        &self,
+        realm_id: RealmId,
+        user_id: UserId,
+        device: DeviceContext,
+        remember_me: bool,
+        now: DateTime<Utc>,
+    ) -> Result<Authentication, AuthError> {
+        let stored = self
+            .store
+            .find_user_by_id(realm_id, user_id)
+            .await?
+            .ok_or_else(AuthError::storage_unavailable)?;
+        self.issue_session(
+            stored.user,
+            device,
+            remember_me,
+            AuthenticationMethod::Federated,
+            None,
+            now,
+        )
+        .await
     }
 
     async fn issue_session(

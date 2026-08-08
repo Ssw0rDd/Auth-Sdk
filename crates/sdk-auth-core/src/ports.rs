@@ -32,8 +32,8 @@ impl Clock for SystemClock {
 pub struct StoredUser {
     /// Public user state.
     pub user: User,
-    /// Argon2id PHC string.
-    pub password_hash: String,
+    /// Argon2id PHC string when the user has established a local credential.
+    pub password_hash: Option<String>,
 }
 
 /// One-time token persisted only as a digest.

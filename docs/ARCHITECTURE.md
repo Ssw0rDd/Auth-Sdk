@@ -1,5 +1,34 @@
 # Arquitetura
 
+## Identidade federada 0.7
+
+```mermaid
+sequenceDiagram
+  participant P as Provider adapter
+  participant F as FederationService
+  participant S as FederationStore transaction
+  P->>F: verified(issuer, subject, verified email)
+  F->>S: resolve issuer + subject
+  alt vínculo conhecido
+    F->>S: create federated session + audit
+    F-->>P: Authentication
+  else mesmo e-mail, subject desconhecido
+    S-->>F: single-use link challenge
+    F-->>P: proof required
+  else usuário novo permitido
+    F->>S: user + identity + session + audit + outbox
+    S-->>F: atomic commit
+    F-->>P: Authentication
+  end
+```
+
+O `User` é o subject estável do realm. Senha, passkey e pares
+`issuer + subject` são autenticadores; não existem “usuários sociais” paralelos.
+E-mail verificado pode localizar uma conta candidata, mas link requer sessão e
+prova fresca da conta local. Primeiro login federado cria usuário sem senha e a
+primeira sessão na mesma unidade atômica. Constraints por e-mail normalizado e
+por issuer/subject resolvem corridas sem duplicação. Veja o ADR 0008.
+
 ## Portabilidade do workspace 0.7
 
 O conjunto padrão da raiz contém os crates portáveis e é testado sem dependências
