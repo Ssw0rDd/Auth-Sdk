@@ -1,0 +1,39 @@
+{
+  "name": "@sdk-auth/bff",
+  "version": "0.7.0-alpha.1",
+  "description": "Framework-neutral backend-for-frontend primitives for SDK-Auth",
+  "type": "module",
+  "files": [
+    "dist",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./stores": {
+      "types": "./dist/stores.d.ts",
+      "import": "./dist/stores.js"
+    }
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT OR Apache-2.0"
+}

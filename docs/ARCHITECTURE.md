@@ -1,5 +1,69 @@
 # Arquitetura
 
+## Browser, BFF e providers 0.7
+
+```mermaid
+sequenceDiagram
+  participant UI as sdk-auth/ui
+  participant C as sdk-auth/browser
+  participant B as sdk-auth/bff
+  participant P as sdk-auth-oauth
+  participant F as FederationService
+  participant S as Server stores
+  UI->>C: provider event
+  C->>B: POST start + Origin + CSRF
+  B->>P: state + nonce + PKCE verifier
+  B->>S: transaction + browser binding + TTL
+  P-->>B: authorization URL (no verifier)
+  B-->>C: authorization URL only
+  C-->>P: browser redirect
+  P-->>B: callback code + state
+  B->>S: atomic take(state)
+  B->>P: exchange code + nonce + verifier
+  P-->>F: verified issuer + subject + email attribute
+  F->>S: atomic identity/session transition
+  B->>S: SDK tokens under random browser session ID
+  B-->>C: __Host HttpOnly cookie; no tokens
+```
+
+O browser é deliberadamente token-blind. `@sdk-auth/browser` só manipula CSRF,
+status público de sessão e authorization URL. `@sdk-auth/bff` mantém tokens e
+estado OAuth server-side; callbacks têm provider próprio, state single-use e
+binding ao browser. `sdk-auth-oauth` valida protocolo antes de produzir
+`VerifiedFederatedClaims`. Veja o ADR 0009.
+
+Senha com MFA, vínculo federado e passkey usam um segundo cookie aleatório
+`__Host-ska-pending`. O valor seleciona estado criptografado no servidor; tokens
+de challenge, link e cerimônia nunca entram em JSON ou cookie. A inspeção da
+sessão pode rotacionar access/refresh tokens e grava o novo par no store antes de
+retornar a projeção pública. `@sdk-auth/bff/node` adapta os bindings N-API;
+`@sdk-auth/bff/stores` sela transações, sessões e fluxos pendentes com
+AES-256-GCM e AAD por deployment/tipo/chave. Inspeção/logout usam exclusão
+mútua por sessão; Redis implementa lease com owner e compare-and-delete para que
+requests concorrentes não acionem falsamente a detecção de refresh replay.
+
+```mermaid
+sequenceDiagram
+  participant UI as sdk-auth/ui
+  participant C as sdk-auth/browser
+  participant B as sdk-auth/bff
+  participant K as Core/Node
+  participant S as encrypted atomic store
+  UI->>C: password(email, secret)
+  C->>B: POST /password + CSRF
+  B->>K: login
+  K-->>B: second_factor_required + challenge bearer
+  B->>S: seal(challenge, methods, TTL)
+  B-->>C: methods + expiry + HttpOnly pending id
+  UI->>C: TOTP/recovery proof
+  C->>B: POST /mfa/complete + proof
+  B->>S: resolve pending id
+  B->>K: challenge bearer + proof
+  K-->>B: opaque SDK token pair
+  B->>S: seal backend session
+  B-->>C: HttpOnly browser session id
+```
+
 ## Identidade federada 0.7
 
 ```mermaid
@@ -37,6 +101,10 @@ opcional porque a API segura de `webauthn-rs` exige OpenSSL; `sdk-auth-node`
 compõe esse adapter e precisa ser publicado por prebuilds, nunca exigindo que o
 consumidor final compile OpenSSL. `--workspace` continua sendo o gate completo.
 Veja o ADR 0007.
+
+OAuth/OIDC nativo possui um binding Rustls separado, `sdk-auth-oauth-node`, que
+não herda OpenSSL/WebAuthn. O binding principal torna WebAuthn uma feature
+opcional, permitindo hosts somente OAuth sem toolchain nativa adicional.
 
 ## Composition root 0.6
 
@@ -124,6 +192,7 @@ desconhecido falha fechado. O provider software declara explicitamente
 ```mermaid
 flowchart TD
   node[sdk-auth-node] --> core[sdk-auth-core]
+  oauth[sdk-auth-oauth] --> core
   node --> sqlite[sdk-auth-sqlite]
   node --> postgres[sdk-auth-postgres]
   node --> redis[sdk-auth-redis]
@@ -151,6 +220,9 @@ flowchart TD
   authorization --> errors
   wasm[sdk-auth-wasm] --> validation
   wasm --> authorization
+  ui[@sdk-auth/ui] -. structural client contract .-> browser[@sdk-auth/browser]
+  browser --> bff[@sdk-auth/bff]
+  bff -. provider/backend ports .-> oauth
 ```
 
 O Core contém casos de uso e transições. Adapters dependem dele; o Core não

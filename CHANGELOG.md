@@ -4,6 +4,38 @@ Todas as mudanças relevantes são registradas neste arquivo.
 
 ## [Unreleased]
 
+### Added
+
+- Atomic federated identity and explicit account linking for Google, GitHub and
+  Microsoft personal/tenant providers.
+- Rustls-only OAuth/OIDC core and portable Node N-API binding.
+- Framework-neutral BFF, token-blind browser client, Lit Web Components and
+  React wrappers for password, OAuth, MFA and passkey login.
+- Encrypted BFF stores with AES-256-GCM/keyring/AAD plus Redis atomic and session
+  lease primitives.
+- OpenAPI contract, multi-language integration guides and isolated local pentest
+  harness.
+
+### Changed
+
+- SQLite/PostgreSQL schema v7 permits federated accounts without a local
+  password and enforces unique issuer/subject identities.
+- Main Node WebAuthn dependency is feature-gated; session inspection now returns
+  email, assurance and rotatable backend state.
+- API-key listing in SQLite/PostgreSQL uses one query instead of N+1.
+- Browser builds no longer publish source or declaration maps.
+
+### Security
+
+- Verified email never authenticates or auto-links an external subject.
+- OAuth state is bound to one browser and atomically consumed; PKCE/nonce and SDK
+  tokens never cross the BFF boundary.
+- MFA/link/passkey bearers remain server-side behind random HttpOnly pending IDs.
+- Session inspection/logout is serialized across replicas to prevent concurrent
+  refresh rotation from being misclassified as token replay.
+- RUSTSEC-2023-0071 is accepted only as documented RISK-001 for public-key OIDC
+  verification; every other advisory remains fatal.
+
 ## [0.6.0] - 2026-07-30
 
 ### Added

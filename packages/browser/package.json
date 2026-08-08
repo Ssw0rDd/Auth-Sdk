@@ -1,0 +1,25 @@
+{
+  "name": "@sdk-auth/browser",
+  "version": "0.7.0-alpha.1",
+  "description": "Token-blind browser client for the SDK-Auth BFF",
+  "type": "module",
+  "files": ["dist", "LICENSE-APACHE", "LICENSE-MIT"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  },
+  "engines": { "node": ">=22" },
+  "license": "MIT OR Apache-2.0"
+}

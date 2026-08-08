@@ -537,8 +537,8 @@ impl IamStore for PostgresAuthStore {
     ) -> Result<Vec<ApiKey>, AuthError> {
         let (kind, principal_id) = principal_parts(principal)?;
         let mut connection = self.pool.acquire().await.map_err(storage)?;
-        let ids = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM iam_api_keys WHERE realm_id=$1 AND principal_kind=$2 AND principal_id=$3 ORDER BY created_at,id",
+        let rows = sqlx::query(
+            "SELECT k.id,k.principal_kind,k.principal_id,k.name,k.created_at,k.expires_at,k.grace_expires_at,k.revoked_at,p.key AS scope_key FROM iam_api_keys k JOIN iam_api_key_scopes s ON s.realm_id=k.realm_id AND s.api_key_id=k.id JOIN iam_permissions p ON p.realm_id=s.realm_id AND p.id=s.permission_id WHERE k.realm_id=$1 AND k.principal_kind=$2 AND k.principal_id=$3 ORDER BY k.created_at,k.id,p.key",
         )
         .bind(realm_id.as_uuid())
         .bind(kind)
@@ -546,13 +546,34 @@ impl IamStore for PostgresAuthStore {
         .fetch_all(&mut *connection)
         .await
         .map_err(storage)?;
-        let mut keys = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(stored) =
-                load_api_key(&mut connection, realm_id, ApiKeyId::from_uuid(id), false).await?
+        let mut keys = Vec::new();
+        let mut index = 0;
+        while index < rows.len() {
+            let row = &rows[index];
+            let id: Uuid = row.try_get("id").map_err(storage)?;
+            let mut scopes = Vec::new();
+            while index < rows.len() && rows[index].try_get::<Uuid, _>("id").map_err(storage)? == id
             {
-                keys.push(stored.key);
+                scopes.push(PermissionKey::parse(
+                    rows[index]
+                        .try_get::<String, _>("scope_key")
+                        .map_err(storage)?,
+                )?);
+                index += 1;
             }
+            let principal_kind: String = row.try_get("principal_kind").map_err(storage)?;
+            let key_principal_id: Uuid = row.try_get("principal_id").map_err(storage)?;
+            keys.push(ApiKey::from_parts(
+                realm_id,
+                ApiKeyId::from_uuid(id),
+                parse_principal(&principal_kind, key_principal_id)?,
+                row.try_get::<String, _>("name").map_err(storage)?,
+                scopes,
+                row.try_get("created_at").map_err(storage)?,
+                row.try_get("expires_at").map_err(storage)?,
+                row.try_get("grace_expires_at").map_err(storage)?,
+                row.try_get("revoked_at").map_err(storage)?,
+            )?);
         }
         Ok(keys)
     }

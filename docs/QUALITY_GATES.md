@@ -14,6 +14,11 @@ Um módulo só está liberado quando:
 - cobertura da lógica security-critical em core, crypto, validation, MFA,
   authorization e WebAuthn orchestration é igual ou superior a 90%.
 
+Pacotes TypeScript acrescentam typecheck estrito, testes BFF/browser/UI,
+pentest local, build minificado, `npm audit` e um gate que rejeita source maps ou
+secrets de teste nos diretórios publicados. BFF distribuído precisa provar
+`putIfAbsent`, `getAndDelete` e exclusão mútua por sessão entre processos.
+
 O adapter `sdk-auth-webauthn` exige OpenSSL development/runtime libraries. Os
 jobs Windows, Linux e macOS configuram a dependência explicitamente. Fuzzing
 inclui respostas WebAuthn hostis contra estado válido server-side.

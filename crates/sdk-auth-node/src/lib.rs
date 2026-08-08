@@ -14,13 +14,14 @@ use sdk_auth_authorization::{
 };
 use sdk_auth_core::{
     AuthConfig, AuthService, AuthenticatorManagementProof, AuthorizationCredential,
-    AuthorizeRequest, BeginPasskeyLoginRequest, BeginPasskeyRegistrationRequest,
-    BeginTotpEnrollmentRequest, BeginTotpReplacementRequest, CompleteLoginRequest,
-    ConfirmTotpEnrollmentRequest, FinishPasskeyLoginRequest, FinishPasskeyRegistrationRequest,
+    AuthorizeRequest, BeginFederatedLoginRequest, BeginPasskeyLoginRequest,
+    BeginPasskeyRegistrationRequest, BeginTotpEnrollmentRequest, BeginTotpReplacementRequest,
+    CompleteFederatedLinkRequest, CompleteLoginRequest, ConfirmTotpEnrollmentRequest,
+    FederatedLoginOutcome, FinishPasskeyLoginRequest, FinishPasskeyRegistrationRequest,
     IamAdminProof, LoginOutcome, LoginRequest, ManageMfaRequest, MfaManagementProof, PasskeyStore,
     RateLimitStore, RefreshRequest, RegisterRequest, RenamePasskeyRequest, ResetPasswordRequest,
     RevokePasskeyRequest, RevokeTrustedDeviceRequest, SdkAuth, SdkStore, SecondFactorMethod,
-    SecondFactorProof,
+    SecondFactorProof, VerifiedFederatedClaims,
 };
 use sdk_auth_crypto::{Argon2PasswordEngine, OsTokenGenerator, VaultKey, XChaCha20Vault};
 use sdk_auth_error::AuthError;
@@ -28,10 +29,13 @@ use sdk_auth_postgres::{PostgresAuthStore, PostgresConfig, PostgresMigrator};
 use sdk_auth_redis::{RedisRateLimitConfig, RedisRateLimitStore};
 use sdk_auth_sqlite::{SqliteAuthStore, SqliteMigrator};
 use sdk_auth_types::{
-    ApiKeyId, DeviceContext, MfaEnrollmentId, Passkey, PasskeyId, PermissionId, RealmId, RoleId,
-    SecretBytes, SecretString, ServiceAccountId, TrustedDevice, TrustedDeviceId, UserId,
+    ApiKeyId, AssuranceLevel, DeviceContext, MfaEnrollmentId, Passkey, PasskeyId, PermissionId,
+    RealmId, RoleId, SecretBytes, SecretString, ServiceAccountId, TrustedDevice, TrustedDeviceId,
+    UserId,
 };
+#[cfg(feature = "webauthn")]
 use sdk_auth_webauthn::{WebAuthnRealmConfig, WebAuthnRegistry};
+#[cfg(feature = "webauthn")]
 use url::Url;
 
 /// One versioned XChaCha20-Poly1305 vault key supplied by the host.
@@ -167,6 +171,10 @@ pub struct NodeRegistration {
 pub struct NodeAuthentication {
     /// Authenticated user identifier.
     pub user_id: String,
+    /// Validated primary email for the authenticated user.
+    pub email: String,
+    /// Conservative `aal1`, `aal2`, or `aal3` session assurance.
+    pub assurance_level: String,
     /// Active session identifier.
     pub session_id: String,
     /// Short-lived access bearer token.
@@ -183,6 +191,19 @@ pub struct NodeAuthentication {
     pub trusted_device_token: Option<String>,
     /// Absolute trusted-device expiration.
     pub trusted_device_expires_at: Option<String>,
+}
+
+/// Allowlisted public session metadata resolved from an access token.
+#[napi(object)]
+pub struct NodeAccessValidation {
+    /// Authenticated user identifier.
+    pub user_id: String,
+    /// Validated primary email.
+    pub email: String,
+    /// Conservative `aal1`, `aal2`, or `aal3` session assurance.
+    pub assurance_level: String,
+    /// Absolute server-side session expiration.
+    pub session_expires_at: String,
 }
 
 /// WebAuthn challenge with server-side state referenced by an opaque handle.
@@ -228,6 +249,55 @@ pub struct NodeLoginOutcome {
     pub methods: Vec<String>,
     /// Pending-login expiration.
     pub challenge_expires_at: Option<String>,
+}
+
+/// Discriminated result after a trusted provider adapter verified OAuth/OIDC.
+#[napi(object)]
+pub struct NodeFederatedLoginOutcome {
+    /// `authenticated`, `link_required`, or `registration_required`.
+    pub kind: String,
+    /// Present only when a browser session can be established immediately.
+    pub authentication: Option<NodeAuthentication>,
+    /// Existing user that must prove account control before linking.
+    pub link_user_id: Option<String>,
+    /// Single-use account-link bearer retained by the trusted BFF.
+    pub link_token: Option<String>,
+    /// Account-link expiration in RFC 3339 format.
+    pub link_expires_at: Option<String>,
+}
+
+/// Public metadata returned after an explicit federated-identity link.
+#[napi(object)]
+pub struct NodeFederatedIdentityLink {
+    /// SDK identity-link identifier.
+    pub identity_id: String,
+    /// Stable SDK user identifier.
+    pub user_id: String,
+    /// Provider configuration key.
+    pub provider_id: String,
+    /// Exact verified issuer.
+    pub issuer: String,
+}
+
+/// Trusted claims and browser context for one federated-login resolution.
+#[napi(object)]
+pub struct NodeVerifiedFederatedLoginRequest {
+    /// Realm in which the provider is configured.
+    pub realm_id: String,
+    /// Stable provider configuration key.
+    pub provider_id: String,
+    /// Exact issuer verified by the provider adapter.
+    pub issuer: String,
+    /// Durable provider subject.
+    pub subject: String,
+    /// Optional provider email attribute.
+    pub email: Option<String>,
+    /// Whether the provider verified ownership of the email attribute.
+    pub email_verified: bool,
+    /// Whether the resulting SDK session uses extended lifetime.
+    pub remember_me: bool,
+    /// Bounded device metadata for the resulting SDK session.
+    pub device: Option<NodeDeviceContext>,
 }
 
 /// One-time challenge returned to a trusted delivery layer.
@@ -532,6 +602,65 @@ impl NodeAuthService {
             .await
             .map_err(node_error)?;
         login_result(result)
+    }
+
+    /// Resolves claims produced by a trusted OAuth/OIDC adapter.
+    ///
+    /// Do not pass decoded-but-unverified JWT fields or browser-supplied
+    /// identity data to this method.
+    #[napi(
+        ts_return_type = "Promise<{ kind: 'authenticated'; authentication: NodeAuthentication; linkUserId?: never; linkToken?: never; linkExpiresAt?: never } | { kind: 'link_required'; authentication?: never; linkUserId: string; linkToken: string; linkExpiresAt: string } | { kind: 'registration_required'; authentication?: never; linkUserId?: never; linkToken?: never; linkExpiresAt?: never }>"
+    )]
+    pub async fn begin_verified_federated_login(
+        &self,
+        request: NodeVerifiedFederatedLoginRequest,
+    ) -> Result<NodeFederatedLoginOutcome> {
+        self.inner
+            .federation()
+            .begin_verified_login(BeginFederatedLoginRequest {
+                realm_id: parse_realm(&request.realm_id)?,
+                device: request
+                    .device
+                    .map_or_else(DeviceContext::default, node_device),
+                remember_me: request.remember_me,
+                claims: VerifiedFederatedClaims {
+                    provider_id: request.provider_id,
+                    issuer: request.issuer,
+                    subject: request.subject,
+                    email: request.email,
+                    email_verified: request.email_verified,
+                },
+            })
+            .await
+            .and_then(federated_login_result)
+            .map_err(node_error)
+    }
+
+    /// Completes an email-candidate link only after fresh proof of the local account.
+    #[napi]
+    pub async fn complete_federated_link(
+        &self,
+        realm_id: String,
+        access_token: String,
+        link_token: String,
+        management: NodeAuthenticatorManagementProof,
+    ) -> Result<NodeFederatedIdentityLink> {
+        self.inner
+            .federation()
+            .complete_link(CompleteFederatedLinkRequest {
+                realm_id: parse_realm(&realm_id)?,
+                access_token: SecretString::new(access_token),
+                link_token: SecretString::new(link_token),
+                proof: parse_authenticator_management(management)?,
+            })
+            .await
+            .map(|identity| NodeFederatedIdentityLink {
+                identity_id: identity.id.to_string(),
+                user_id: identity.user_id.to_string(),
+                provider_id: identity.provider_id,
+                issuer: identity.issuer,
+            })
+            .map_err(node_error)
     }
 
     /// Completes a pending login with TOTP or a recovery code.
@@ -889,6 +1018,25 @@ impl NodeAuthService {
             .validate_access(parse_realm(&realm_id)?, &SecretString::new(access_token))
             .await
             .map(|validated| validated.user.id.to_string())
+            .map_err(node_error)
+    }
+
+    /// Validates an access token and returns allowlisted browser-session metadata.
+    #[napi]
+    pub async fn inspect_access(
+        &self,
+        realm_id: String,
+        access_token: String,
+    ) -> Result<NodeAccessValidation> {
+        self.auth()
+            .validate_access(parse_realm(&realm_id)?, &SecretString::new(access_token))
+            .await
+            .map(|validated| NodeAccessValidation {
+                user_id: validated.user.id.to_string(),
+                email: validated.user.email.as_str().to_owned(),
+                assurance_level: assurance_name(validated.session.assurance().level).to_owned(),
+                session_expires_at: validated.session.expires_at.to_rfc3339(),
+            })
             .map_err(node_error)
     }
 
@@ -1300,25 +1448,35 @@ where
     if let Some(rate_limit_store) = rate_limit_store {
         builder = builder.rate_limit_store(rate_limit_store);
     }
-    if let Some(realms) = webauthn_realms {
-        let mut configs = Vec::with_capacity(realms.len());
-        for realm in realms {
-            let origins = realm
-                .origins
-                .into_iter()
-                .map(|origin| Url::parse(&origin).map_err(|_| invalid_input()))
-                .collect::<Result<Vec<_>>>()?;
-            configs.push(WebAuthnRealmConfig {
-                realm_id: parse_realm(&realm.realm_id)?,
-                rp_id: realm.rp_id,
-                rp_name: realm.rp_name,
-                origins,
-            });
+    #[cfg(feature = "webauthn")]
+    {
+        if let Some(realms) = webauthn_realms {
+            let mut configs = Vec::with_capacity(realms.len());
+            for realm in realms {
+                let origins = realm
+                    .origins
+                    .into_iter()
+                    .map(|origin| Url::parse(&origin).map_err(|_| invalid_input()))
+                    .collect::<Result<Vec<_>>>()?;
+                configs.push(WebAuthnRealmConfig {
+                    realm_id: parse_realm(&realm.realm_id)?,
+                    rp_id: realm.rp_id,
+                    rp_name: realm.rp_name,
+                    origins,
+                });
+            }
+            let engine = WebAuthnRegistry::new(configs).map_err(node_error)?;
+            builder = builder
+                .passkey_store(store)
+                .webauthn_engine(Arc::new(engine));
         }
-        let engine = WebAuthnRegistry::new(configs).map_err(node_error)?;
-        builder = builder
-            .passkey_store(store)
-            .webauthn_engine(Arc::new(engine));
+    }
+    #[cfg(not(feature = "webauthn"))]
+    if webauthn_realms.is_some() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            "MISCONFIGURED:this binary was built without the webauthn feature",
+        ));
     }
     let service = builder.build().map_err(node_error)?;
     Ok(NodeAuthService {
@@ -1362,6 +1520,36 @@ fn login_result(result: LoginOutcome) -> Result<NodeLoginOutcome> {
             Status::GenericFailure,
             "INTERNAL:unsupported login outcome",
         )),
+    }
+}
+
+fn federated_login_result(
+    result: FederatedLoginOutcome,
+) -> std::result::Result<NodeFederatedLoginOutcome, AuthError> {
+    #[allow(unreachable_patterns)]
+    match result {
+        FederatedLoginOutcome::Authenticated(authentication) => Ok(NodeFederatedLoginOutcome {
+            kind: "authenticated".to_owned(),
+            authentication: Some(authentication_result(*authentication)),
+            link_user_id: None,
+            link_token: None,
+            link_expires_at: None,
+        }),
+        FederatedLoginOutcome::LinkRequired(link) => Ok(NodeFederatedLoginOutcome {
+            kind: "link_required".to_owned(),
+            authentication: None,
+            link_user_id: Some(link.user_id.to_string()),
+            link_token: Some(link.token.expose_secret().to_owned()),
+            link_expires_at: Some(link.expires_at.to_rfc3339()),
+        }),
+        FederatedLoginOutcome::RegistrationRequired => Ok(NodeFederatedLoginOutcome {
+            kind: "registration_required".to_owned(),
+            authentication: None,
+            link_user_id: None,
+            link_token: None,
+            link_expires_at: None,
+        }),
+        _ => Err(AuthError::storage_unavailable()),
     }
 }
 
@@ -1522,6 +1710,7 @@ fn invalid_input() -> Error {
 }
 
 fn authentication_result(result: sdk_auth_core::Authentication) -> NodeAuthentication {
+    let assurance_level = assurance_name(result.session.assurance().level).to_owned();
     let (trusted_device_id, trusted_device_token, trusted_device_expires_at) = result
         .trusted_device_grant
         .map_or((None, None, None), |grant| {
@@ -1533,6 +1722,8 @@ fn authentication_result(result: sdk_auth_core::Authentication) -> NodeAuthentic
         });
     NodeAuthentication {
         user_id: result.user.id.to_string(),
+        email: result.user.email.as_str().to_owned(),
+        assurance_level,
         session_id: result.session.id.to_string(),
         access_token: result.tokens.access_token.expose_secret().to_owned(),
         refresh_token: result.tokens.refresh_token.expose_secret().to_owned(),
@@ -1541,6 +1732,17 @@ fn authentication_result(result: sdk_auth_core::Authentication) -> NodeAuthentic
         trusted_device_id,
         trusted_device_token,
         trusted_device_expires_at,
+    }
+}
+
+const fn assurance_name(level: AssuranceLevel) -> &'static str {
+    #[allow(unreachable_patterns)]
+    match level {
+        AssuranceLevel::Aal1 => "aal1",
+        AssuranceLevel::Aal2 => "aal2",
+        AssuranceLevel::Aal3 => "aal3",
+        // New upstream levels fail conservatively instead of claiming strength.
+        _ => "aal1",
     }
 }
 

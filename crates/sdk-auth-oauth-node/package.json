@@ -1,0 +1,25 @@
+{
+  "name": "@sdk-auth/oauth-node",
+  "version": "0.7.0-alpha.1",
+  "private": true,
+  "description": "Portable native OAuth/OIDC providers for SDK-Auth Node hosts",
+  "main": "sdk-auth-oauth-node.node",
+  "types": "index.d.ts",
+  "scripts": {
+    "build": "napi build --release",
+    "build:platform": "napi build --platform --release"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.8.2"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1"
+  },
+  "napi": {
+    "binaryName": "sdk-auth-oauth-node"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT OR Apache-2.0"
+}

@@ -18,6 +18,16 @@
 - Respostas HTTP de recuperação/verificação pertencem ao BFF e devem ser
   indistinguíveis para contas existentes e inexistentes. O dispatch opcional
   nunca pode atravessar a fronteira confiável do host.
+- Browser não recebe access/refresh, PKCE verifier, nonce pendente, link token,
+  challenge MFA ou ceremony token. Cookies carregam apenas IDs aleatórios.
+- Stores BFF distribuídos selam estado com AES-256-GCM e AAD contextual; replay
+  de ciphertext sob outro tipo/ID falha autenticação.
+- Refresh rotation da sessão backend é persistida durante a inspeção; token
+  predecessor não permanece como única cópia após uma resposta bem-sucedida.
+- Inspeções concorrentes são serializadas por sessão em todas as réplicas;
+  múltiplos refreshes simultâneos não podem acionar revogação falsa por replay.
+- Código browser é assumido público. Ausência de source maps e minificação
+  reduzem exposição acidental, sem substituir controles server-side.
 
 ## Atualização 0.6
 
@@ -54,7 +64,8 @@
 ## Ativos
 
 Senhas, seeds TOTP, recovery codes, passkeys, estado WebAuthn, chaves do vault, bearer tokens, API keys,
-sessões, papéis, permissões, service accounts, eventos e isolamento entre realms.
+sessões, estado OAuth/BFF, papéis, permissões, service accounts, eventos e
+isolamento entre realms.
 
 ## Adversários considerados
 

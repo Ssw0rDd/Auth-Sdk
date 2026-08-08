@@ -18,15 +18,15 @@ use sdk_auth_core::{
     CompleteFederatedLink, CompleteMfaLogin, CompletePasskeyAuthentication,
     CompletePasskeyRegistration, CreateApiKey, CreatePermission, CreateRole, CreateServiceAccount,
     CreateSession, CreateTrustedDevice, CreateUser, EventStore, FederatedIdentity,
-    FederatedLinkResolution, FederatedRegistrationResolution, FederatedResolution, FederationStore,
-    IamStore, IdentityStore, LeasedEventStore, LoginAttemptPolicy, MfaChallengeLookup,
-    MfaCompletionOutcome, MfaEnrollmentOutcome, MfaStore, OneTimeChallenge, OneTimeOutcome,
-    PasskeyAuthenticationOutcome, PasskeyCeremonyKind, PasskeyCeremonyLookup,
-    PasskeyRegistrationOutcome, PasskeyStore, PendingFederatedLink, PendingPasskeyCeremony,
-    PendingTotpEnrollment, RateLimitStore, RefreshRotation, RegisterFederatedUser, RotateApiKey,
-    RotateTrustedLogin, SessionStore, StoredApiKey, StoredMfaLoginChallenge, StoredPasskey,
-    StoredTotpFactor, StoredUser, TrustedLoginOutcome, UnitOfWorkCapabilities, UnitOfWorkStore,
-    VerifiedMfaProof,
+    FederatedIdentityKey, FederatedLinkResolution, FederatedRegistrationResolution,
+    FederatedResolution, FederationStore, IamStore, IdentityStore, LeasedEventStore,
+    LoginAttemptPolicy, MfaChallengeLookup, MfaCompletionOutcome, MfaEnrollmentOutcome, MfaStore,
+    OneTimeChallenge, OneTimeOutcome, PasskeyAuthenticationOutcome, PasskeyCeremonyKind,
+    PasskeyCeremonyLookup, PasskeyRegistrationOutcome, PasskeyStore, PendingFederatedLink,
+    PendingPasskeyCeremony, PendingTotpEnrollment, RateLimitStore, RefreshRotation,
+    RegisterFederatedUser, RotateApiKey, RotateTrustedLogin, SessionStore, StoredApiKey,
+    StoredMfaLoginChallenge, StoredPasskey, StoredTotpFactor, StoredUser, TrustedLoginOutcome,
+    UnitOfWorkCapabilities, UnitOfWorkStore, VerifiedMfaProof,
 };
 use sdk_auth_crypto::{AeadAlgorithm, SealedSecret, TokenDigest};
 use sdk_auth_error::{AuthError, ErrorCode};
@@ -432,6 +432,34 @@ impl IdentityStore for SqliteAuthStore {
 
 #[async_trait]
 impl FederationStore for SqliteAuthStore {
+    async fn resolve_federated_user(
+        &self,
+        realm_id: RealmId,
+        identity: FederatedIdentityKey,
+        now: DateTime<Utc>,
+    ) -> Result<Option<UserId>, AuthError> {
+        self.run(move |connection| {
+            let transaction = immediate(connection)?;
+            let user_id = transaction
+                .query_row(
+                    "UPDATE federated_identities SET last_used_at=CASE WHEN last_used_at IS NULL OR last_used_at < ? THEN ? ELSE last_used_at END WHERE realm_id=? AND issuer=? AND subject=? AND revoked_at IS NULL RETURNING user_id",
+                    params![
+                        ts(now),
+                        ts(now),
+                        realm_id.to_string(),
+                        identity.issuer,
+                        identity.subject
+                    ],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            transaction.commit().map_err(storage)?;
+            user_id.map(|value| UserId::parse(&value)).transpose()
+        })
+        .await
+    }
+
     async fn begin_federated_link(
         &self,
         pending: PendingFederatedLink,
@@ -2674,15 +2702,36 @@ impl IamStore for SqliteAuthStore {
         self.run(move |connection| {
             let (kind, principal_id) = principal_parts(principal);
             let mut statement = connection.prepare(
-                "SELECT id FROM iam_api_keys WHERE realm_id=? AND principal_kind=? AND principal_id=? ORDER BY created_at,id",
+                "SELECT k.id,k.principal_kind,k.principal_id,k.name,k.created_at,k.expires_at,k.grace_expires_at,k.revoked_at,p.key FROM iam_api_keys k JOIN iam_api_key_scopes s ON s.realm_id=k.realm_id AND s.api_key_id=k.id JOIN iam_permissions p ON p.realm_id=s.realm_id AND p.id=s.permission_id WHERE k.realm_id=? AND k.principal_kind=? AND k.principal_id=? ORDER BY k.created_at,k.id,p.key",
             ).map_err(storage)?;
-            let rows = statement.query_map(params![realm_id.to_string(), kind, principal_id], |row| row.get::<_, String>(0)).map_err(storage)?;
-            let mut ids = Vec::new();
-            for row in rows { ids.push(ApiKeyId::parse(&row.map_err(storage)?)?); }
+            type ListedApiKeyRow = (String, String, String, String, String, String, Option<String>, Option<String>, String);
+            let rows = statement.query_map(params![realm_id.to_string(), kind, principal_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?))
+            }).map_err(storage)?;
+            let mut listed: Vec<ListedApiKeyRow> = Vec::new();
+            for row in rows { listed.push(row.map_err(storage)?); }
             drop(statement);
-            let mut values = Vec::with_capacity(ids.len());
-            for id in ids {
-                if let Some(stored) = load_api_key(connection, realm_id, id)? { values.push(stored.key); }
+            let mut values = Vec::new();
+            let mut index = 0;
+            while index < listed.len() {
+                let row = &listed[index];
+                let id = row.0.clone();
+                let mut scopes = Vec::new();
+                while index < listed.len() && listed[index].0 == id {
+                    scopes.push(PermissionKey::parse(&listed[index].8)?);
+                    index += 1;
+                }
+                values.push(ApiKey::from_parts(
+                    realm_id,
+                    ApiKeyId::parse(&id)?,
+                    parse_principal(&row.1, &row.2)?,
+                    row.3.clone(),
+                    scopes,
+                    parse_ts(&row.4)?,
+                    parse_ts(&row.5)?,
+                    row.6.as_deref().map(parse_ts).transpose()?,
+                    row.7.as_deref().map(parse_ts).transpose()?,
+                )?);
             }
             Ok(values)
         }).await

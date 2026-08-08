@@ -12,6 +12,10 @@ export declare class NodeAuthService {
   verifyEmail(realmId: string, token: string): Promise<void>
   /** Verifies password and either authenticates or requests a second factor. */
   login(realmId: string, email: string, password: string, rememberMe: boolean, device?: NodeDeviceContext | undefined | null, trustedDeviceToken?: string | undefined | null): Promise<{ kind: 'authenticated'; authentication: NodeAuthentication; challengeToken?: never; methods: []; challengeExpiresAt?: never } | { kind: 'second_factor_required'; authentication?: never; challengeToken: string; methods: Array<'totp' | 'recovery_code'>; challengeExpiresAt: string }>
+  /** Resolves claims produced by a trusted OAuth/OIDC adapter. Do not pass decoded-but-unverified claims. */
+  beginVerifiedFederatedLogin(request: NodeVerifiedFederatedLoginRequest): Promise<{ kind: 'authenticated'; authentication: NodeAuthentication; linkUserId?: never; linkToken?: never; linkExpiresAt?: never } | { kind: 'link_required'; authentication?: never; linkUserId: string; linkToken: string; linkExpiresAt: string } | { kind: 'registration_required'; authentication?: never; linkUserId?: never; linkToken?: never; linkExpiresAt?: never }>
+  /** Completes an email-candidate link only after fresh proof of the local account. */
+  completeFederatedLink(realmId: string, accessToken: string, linkToken: string, management: NodeAuthenticatorManagementProof): Promise<NodeFederatedIdentityLink>
   /** Completes a pending login with TOTP or a recovery code. */
   completeLogin(realmId: string, challengeToken: string, proofKind: string, proof: string, trustDevice: boolean): Promise<NodeAuthentication>
   /** Starts passkey registration after fresh authenticator-management proof. */
@@ -48,6 +52,8 @@ export declare class NodeAuthService {
   refresh(realmId: string, refreshToken: string): Promise<NodeAuthentication>
   /** Validates an access token and returns its user identifier. */
   validateAccess(realmId: string, accessToken: string): Promise<string>
+  /** Validates an access token and returns allowlisted browser-session metadata. */
+  inspectAccess(realmId: string, accessToken: string): Promise<NodeAccessValidation>
   /** Revokes the session associated with an access token. */
   logout(realmId: string, accessToken: string): Promise<void>
   /** Creates a reset challenge for a trusted email delivery layer. */
@@ -90,6 +96,7 @@ export declare class NodeAuthService {
   authorize(realmId: string, credentialKind: string, credential: string, permission: string): Promise<NodeAuthorizationGrant>
 }
 
+
 /** Applies explicit PostgreSQL migrations without starting an auth service. */
 export declare function migratePostgres(databaseUrl: string, allowInsecureLocalhost?: boolean | undefined | null): Promise<NodeMigrationReport>
 
@@ -128,6 +135,10 @@ export interface NodeApiKeyGrant {
 export interface NodeAuthentication {
   /** Authenticated user identifier. */
   userId: string
+  /** Validated primary email for the authenticated user. */
+  email: string
+  /** Conservative `aal1`, `aal2`, or `aal3` session assurance. */
+  assuranceLevel: string
   /** Active session identifier. */
   sessionId: string
   /** Short-lived access bearer token. */
@@ -145,6 +156,57 @@ export interface NodeAuthentication {
   /** Absolute trusted-device expiration. */
   trustedDeviceExpiresAt?: string
 }
+
+/** Allowlisted public session metadata resolved from an access token. */
+export interface NodeAccessValidation {
+  /** Authenticated user identifier. */
+  userId: string
+  /** Validated primary email. */
+  email: string
+  /** Conservative `aal1`, `aal2`, or `aal3` session assurance. */
+  assuranceLevel: string
+  /** Absolute server-side session expiration. */
+  sessionExpiresAt: string
+}
+
+/** Public metadata returned after an explicit federated-identity link. */
+export interface NodeFederatedIdentityLink {
+  /** SDK identity-link identifier. */
+  identityId: string
+  /** Stable SDK user identifier. */
+  userId: string
+  /** Provider configuration key. */
+  providerId: string
+  /** Exact verified issuer. */
+  issuer: string
+}
+
+/** Discriminated result after a trusted provider adapter verified OAuth/OIDC. */
+export interface NodeFederatedLoginOutcome {
+  /** `authenticated`, `link_required`, or `registration_required`. */
+  kind: string
+  /** Present only when a browser session can be established immediately. */
+  authentication?: NodeAuthentication
+  /** Existing user that must prove account control before linking. */
+  linkUserId?: string
+  /** Single-use account-link bearer retained by the trusted BFF. */
+  linkToken?: string
+  /** Account-link expiration in RFC 3339 format. */
+  linkExpiresAt?: string
+}
+
+/** Trusted claims and browser context for one federated-login resolution. */
+export interface NodeVerifiedFederatedLoginRequest {
+  realmId: string
+  providerId: string
+  issuer: string
+  subject: string
+  email?: string
+  emailVerified: boolean
+  rememberMe: boolean
+  device?: NodeDeviceContext
+}
+
 
 /** Fresh proof for passkey registration or revocation. */
 export interface NodeAuthenticatorManagementProof {

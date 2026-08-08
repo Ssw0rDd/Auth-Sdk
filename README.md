@@ -1,12 +1,12 @@
 # SDK-Auth
 
-SDK de autenticação modular em Rust. Regras de negócio ficam no Core; Memory,
-SQLite, PostgreSQL, Redis, Node.js e WebAssembly são adapters.
+SDK de autenticação modular com Core em Rust. Memory, SQLite, PostgreSQL, Redis,
+OAuth/OIDC, Node.js, WebAssembly, BFF TypeScript e UI Web Component são adapters.
 
 ## Estado
 
-Versão privada `0.6.0`. Os pacotes continuam com `publish = false` até revisão
-independente da API e da segurança.
+Linha estável privada `0.6.0`; desenvolvimento `0.7.0-alpha`. Os crates continuam
+com `publish = false` até revisão independente da API e da segurança.
 
 Implementado:
 
@@ -26,10 +26,66 @@ Implementado:
 - binding Node N-API e validação client-safe em WebAssembly;
 - facades por capacidade, assurance conservador, crypto provider versionado,
   audit log append-only e journal state/audit/outbox atômico;
-- schema SQLite v4 com metadados criptográficos e contrato rolling-deploy;
+- schemas versionados com metadados criptográficos e contrato rolling-deploy;
 - passkeys WebAuthn com UV obrigatória, estado server-side, origens exatas,
   revogação e detecção de possível clone por signature counter;
 - schemas SQLite/PostgreSQL v6, migração offline SQLite→PostgreSQL e factory Node assíncrona.
+- identidade federada atômica sem auto-link por e-mail e schema v7 com contas
+  sem senha local;
+- adapters Google OIDC, GitHub OAuth e Microsoft pessoal/Hotmail ou tenant Entra
+  com Authorization Code, PKCE S256, state, nonce e verificação de ID token;
+- BFF Fetch framework-neutral, cliente browser sem tokens e UI Lit/React
+  acessível no tema forge vermelho/preto;
+- MFA e passkey no browser com challenge/ceremony token exclusivamente
+  server-side, vínculo federado explícito e refresh rotation persistida no BFF;
+- stores BFF de produção selados com AES-256-GCM, keyring versionado e ports
+  atômicos para Redis/PostgreSQL.
+
+## UI e cliente browser 0.7
+
+Os pacotes ainda são consumidos pelo workspace até a primeira release pública:
+
+```ts
+import { BrowserAuthClient } from '@sdk-auth/browser'
+import { connectAuthChallenge, connectAuthLogin } from '@sdk-auth/ui'
+import '@sdk-auth/ui'
+import '@sdk-auth/ui/theme.css'
+
+const client = new BrowserAuthClient()
+const login = document.querySelector('sdk-auth-login')
+if (login) {
+  login.showPasskey = true
+  connectAuthLogin(login, client, {
+    onAuthenticated: () => location.assign('/account'),
+    onSecondFactorRequired: ({ methods }) => {
+      const challenge = document.querySelector('sdk-auth-challenge')
+      if (challenge) challenge.methods = methods
+    },
+  })
+}
+
+const challenge = document.querySelector('sdk-auth-challenge')
+if (challenge) {
+  connectAuthChallenge(challenge, client, {
+    onAuthenticated: () => location.assign('/account'),
+  })
+}
+```
+
+```html
+<sdk-auth-login show-passkey>
+  <a slot="forgot-password" href="/recover">Esqueci a senha</a>
+  <a slot="register" href="/register">Criar conta</a>
+</sdk-auth-login>
+<sdk-auth-challenge></sdk-auth-challenge>
+```
+
+O componente não navega nem armazena senha sozinho. O cliente chama apenas o BFF
+same-origin; access/refresh tokens permanecem no servidor. Os stores Memory de
+`@sdk-auth/bff` são somente para testes/processo único. Em produção, use
+`createEncryptedBffStores` de `@sdk-auth/bff/stores` sobre um KV cujo
+`putIfAbsent`, `getAndDelete` e `runExclusive` sejam realmente distribuídos e
+atômicos; o adapter Redis oficial já implementa essas garantias.
 
 ## Requisitos
 
@@ -234,8 +290,10 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps
-cargo audit --deny warnings
+cargo audit --deny warnings --ignore RUSTSEC-2023-0071 # RISK-001 documentado
 cargo deny check
+npm run bff:test && npm run browser:test && npm run ui:test
+npm run pentest && npm audit --audit-level=high
 ```
 
 ## Documentação
@@ -245,8 +303,15 @@ cargo deny check
 - [Auditoria técnica 0.4](docs/AUDIT-0.4.md)
 - [Auditoria técnica 0.5](docs/AUDIT-0.5.md)
 - [Auditoria técnica 0.6](docs/AUDIT-0.6.md)
+- [Auditoria e implementação 0.7](docs/AUDIT-0.7.md)
+- [Relatório das oito fases](docs/IMPLEMENTATION-0.7.md)
+- [Migração 0.6 para 0.7-alpha](docs/MIGRATION-0.7.md)
+- [OpenAPI do BFF](docs/openapi/bff.yaml)
+- [Guias de integração](docs/integrations)
 - [ADR de persistência distribuída](docs/adr/0006-distributed-persistence.md)
 - [ADR WebAuthn/passkeys](docs/adr/0005-webauthn-passkeys.md)
+- [ADR BFF/UI token-blind](docs/adr/0009-browser-bff-and-public-login-ui.md)
+- [ADR código público e estado confidencial](docs/adr/0010-public-code-and-confidential-state.md)
 - [Quality gates](docs/QUALITY_GATES.md)
 - [Política de segurança](SECURITY.md)
 - [Roadmap](ROADMAP.md)

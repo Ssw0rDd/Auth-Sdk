@@ -1,0 +1,54 @@
+{
+  "name": "@sdk-auth/ui",
+  "version": "0.7.0-alpha.1",
+  "description": "Accessible SDK-Auth login Web Component with React bindings",
+  "type": "module",
+  "sideEffects": [
+    "*.css",
+    "**/*.css"
+  ],
+  "files": [
+    "dist",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./theme.css": "./dist/theme.css"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "vite --host 127.0.0.1",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fontsource/manrope": "5.3.0",
+    "@fontsource/syne": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@lit/react": "1.0.8",
+    "lit": "3.3.3"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "jsdom": "30.0.1",
+    "react": "19.2.8",
+    "typescript": "7.0.2",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT OR Apache-2.0"
+}

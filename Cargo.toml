@@ -4,6 +4,8 @@ members = [
     "crates/sdk-auth-core",
     "crates/sdk-auth-crypto",
     "crates/sdk-auth-error",
+    "crates/sdk-auth-oauth",
+    "crates/sdk-auth-oauth-node",
     "crates/sdk-auth-memory",
     "crates/sdk-auth-mfa",
     "crates/sdk-auth-node",
@@ -28,6 +30,8 @@ default-members = [
     "crates/sdk-auth-core",
     "crates/sdk-auth-crypto",
     "crates/sdk-auth-error",
+    "crates/sdk-auth-oauth",
+    "crates/sdk-auth-oauth-node",
     "crates/sdk-auth-memory",
     "crates/sdk-auth-mfa",
     "crates/sdk-auth-postgres",
@@ -63,6 +67,7 @@ insta = { version = "1.43.2", features = ["json"] }
 napi = { version = "3.4.0", default-features = false, features = ["napi8", "tokio_rt"] }
 napi-build = "2.2.3"
 napi-derive = "3.3.0"
+openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 proptest = "1.8.0"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
 regex = "1.12.2"

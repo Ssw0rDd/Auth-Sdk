@@ -1,11 +1,12 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sdk_auth_core::{
-    CompleteFederatedLink, FederatedIdentity, FederatedLinkResolution,
+    CompleteFederatedLink, FederatedIdentity, FederatedIdentityKey, FederatedLinkResolution,
     FederatedRegistrationResolution, FederatedResolution, FederationStore, PendingFederatedLink,
     RegisterFederatedUser,
 };
 use sdk_auth_error::AuthError;
-use sdk_auth_types::{EmailAddress, FederatedIdentityId, UserId};
+use sdk_auth_types::{EmailAddress, FederatedIdentityId, RealmId, UserId};
 use sqlx::Row as _;
 use uuid::Uuid;
 
@@ -13,6 +14,25 @@ use crate::{PostgresAuthStore, mapping, session};
 
 #[async_trait]
 impl FederationStore for PostgresAuthStore {
+    async fn resolve_federated_user(
+        &self,
+        realm_id: RealmId,
+        identity: FederatedIdentityKey,
+        now: DateTime<Utc>,
+    ) -> Result<Option<UserId>, AuthError> {
+        sqlx::query_scalar::<_, Uuid>(
+            "UPDATE federated_identities SET last_used_at=GREATEST(COALESCE(last_used_at,$4),$4) WHERE realm_id=$1 AND issuer=$2 AND subject=$3 AND revoked_at IS NULL RETURNING user_id",
+        )
+        .bind(realm_id.as_uuid())
+        .bind(identity.issuer)
+        .bind(identity.subject)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(mapping::storage)
+        .map(|value| value.map(UserId::from_uuid))
+    }
+
     async fn begin_federated_link(
         &self,
         pending: PendingFederatedLink,

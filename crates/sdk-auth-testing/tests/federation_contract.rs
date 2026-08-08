@@ -5,9 +5,11 @@ use std::sync::Arc;
 use sdk_auth_core::{
     AuthConfig, AuthService, AuthStore, BeginFederatedLoginRequest, CompleteFederatedLinkRequest,
     FederatedLinkProof, FederatedLoginOutcome, FederationConfig, FederationService,
-    FederationStore, LoginOutcome, LoginRequest, RegisterRequest, VerifiedFederatedClaims,
+    FederationStore, LoginOutcome, LoginRequest, RegisterRequest, SdkAuth, VerifiedFederatedClaims,
 };
-use sdk_auth_crypto::{Argon2PasswordEngine, OsTokenGenerator, VaultKey, XChaCha20Vault};
+use sdk_auth_crypto::{
+    Argon2PasswordEngine, OsTokenGenerator, SoftwareCryptoProvider, VaultKey, XChaCha20Vault,
+};
 use sdk_auth_error::AuthError;
 use sdk_auth_memory::MemoryAuthStore;
 use sdk_auth_sqlite::{SqliteAuthStore, SqliteMigrator};
@@ -25,6 +27,26 @@ async fn sqlite_federation_contract() -> Result<(), AuthError> {
     let path = directory.path().join("federation.sqlite3");
     SqliteMigrator::migrate(&path)?;
     federation_contract(Arc::new(SqliteAuthStore::open(path)?)).await
+}
+
+#[test]
+fn composition_root_exposes_federation() -> Result<(), AuthError> {
+    let vault = XChaCha20Vault::new(
+        "test-v1",
+        vec![VaultKey::new("test-v1", SecretBytes::new(vec![0xA5; 32]))?],
+    )?;
+    let provider = SoftwareCryptoProvider::new(
+        Arc::new(Argon2PasswordEngine::recommended()?),
+        Arc::new(OsTokenGenerator),
+        Arc::new(vault),
+    );
+    let sdk = SdkAuth::builder()
+        .store(Arc::new(MemoryAuthStore::default()))
+        .crypto_provider(Arc::new(provider))
+        .federation_config(FederationConfig::default())
+        .build()?;
+    let _ = sdk.federation();
+    Ok(())
 }
 
 pub(crate) async fn federation_contract<S>(store: Arc<S>) -> Result<(), AuthError>
@@ -173,8 +195,8 @@ where
                 provider_id: "github".to_owned(),
                 issuer: "https://github.com".to_owned(),
                 subject: "42424242".to_owned(),
-                email: Some("provider-renamed@example.com".to_owned()),
-                email_verified: true,
+                email: None,
+                email_verified: false,
             },
         })
         .await?;

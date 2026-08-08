@@ -6,7 +6,21 @@ Não abra issue pública para vulnerabilidades. Envie um relatório privado aos
 mantenedores com componente, impacto, pré-condições e forma segura de reproduzir.
 Não inclua credenciais, dados pessoais ou tokens reais.
 
-## Controles do 0.6
+## Controles do 0.7
+
+- Identidade federada usa issuer HTTPS exato mais subject; e-mail não faz
+  auto-link e constraints transacionais evitam usuário duplicado.
+- OAuth/OIDC usa Authorization Code, PKCE S256, state, nonce, callback por
+  provider e validação de assinatura/issuer/audience/expiração.
+- O browser é token-blind; bearers SDK/OAuth e challenges ficam no BFF.
+- Mutações BFF exigem Origin exata, CSRF e cookies `__Host-` seguros.
+- Estado BFF de produção pode ser selado com AES-256-GCM, keyring versionado e
+  AAD por deployment/tipo/record ID sobre operações distribuídas atômicas.
+- Login browser por MFA e passkey retém challenge e ceremony token server-side.
+- Builds browser não publicam source maps; nenhuma segurança depende de esconder
+  código entregue ao cliente.
+
+Controles herdados do 0.6:
 
 - `unsafe` proibido no workspace.
 - Senhas protegidas por Argon2id e salts aleatórios.
@@ -40,6 +54,8 @@ O host deve aplicar TLS, cookies seguros, CSRF, origem confiável do endereço I
 política de retenção, autorização por recurso contra IDOR, redaction de logs e
 entrega segura dos eventos de email.
 O keyring do vault deve vir de secret manager/HSM, nunca do banco ou repositório.
+O mesmo vale para o keyring dos stores BFF; KV e chave devem ter domínios de
+acesso separados.
 Mantenha chaves antigas até concluir e verificar o rewrap.
 Mantenha OpenSSL e `webauthn-rs` atualizados; somente a versão upstream mais
 recente suportada deve permanecer em produção.

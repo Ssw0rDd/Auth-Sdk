@@ -34,6 +34,36 @@ jobs:
       - run: cargo +1.97.1 test --workspace --all-features
       - run: cargo +1.97.1 doc --workspace --no-deps
 
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run bff:check
+      - run: npm run browser:check
+      - run: npm run ui:check
+      - run: npm run pentest:check
+      - run: npm run bff:test
+      - run: npm run browser:test
+      - run: npm run ui:test
+      - run: npm run pentest
+      - run: npm run bff:build
+      - run: npm run browser:build
+      - run: npm run ui:build
+      - name: Reject source maps and test secrets in published artifacts
+        shell: bash
+        run: |
+          if find packages/*/dist -type f -name '*.map' -print -quit | grep -q .; then
+            exit 1
+          fi
+          if grep -RInE '(server-(access|refresh)-secret|verifier_012345|GOOGLE_CLIENT_SECRET)' packages/*/dist; then
+            exit 1
+          fi
+
   msrv:
     runs-on: ubuntu-latest
     steps:
@@ -117,6 +147,8 @@ jobs:
         with:
           node-version: 24
       - run: cargo test --workspace --all-features
+      - run: npm ci --ignore-scripts
+      - run: npm run build --workspace @sdk-auth/oauth-node
       - run: npm ci
         working-directory: crates/sdk-auth-node
       - run: npm run build
@@ -149,7 +181,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: cargo install cargo-audit --locked
       - run: cargo install cargo-deny --locked
-      - run: cargo audit --deny warnings
+      # RISK-001 is a narrowly scoped, documented exception. Every other
+      # warning/advisory remains fatal.
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
       - run: cargo deny check
       - name: Reject obvious committed secrets
         shell: bash
@@ -157,6 +191,7 @@ jobs:
           if grep -RInE --exclude-dir=.git --exclude-dir=target --exclude='*.lock' '(BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{30,})' .; then
             exit 1
           fi
+      - run: npm audit --audit-level=high
 
   coverage:
     runs-on: ubuntu-latest

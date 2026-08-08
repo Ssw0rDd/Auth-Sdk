@@ -9,17 +9,20 @@ use sdk_auth_error::{AuthError, ErrorCode};
 
 use crate::{
     AuditService, AuditStore, AuthConfig, AuthService, AuthStore, AuthenticationService,
-    AuthenticatorService, AuthorizationConfig, AuthorizationService, Clock, IamService, IamStore,
-    IdentityService, LeasedEventStore, OutboxService, PasskeyService, PasskeyStore, RateLimitStore,
-    RecoveryService, SessionService, SystemClock, UnitOfWorkCapabilities, UnitOfWorkStore,
-    WebAuthnEngine,
+    AuthenticatorService, AuthorizationConfig, AuthorizationService, Clock, FederationConfig,
+    FederationService, FederationStore, IamService, IamStore, IdentityService, LeasedEventStore,
+    OutboxService, PasskeyService, PasskeyStore, RateLimitStore, RecoveryService, SessionService,
+    SystemClock, UnitOfWorkCapabilities, UnitOfWorkStore, WebAuthnEngine,
 };
 
 /// Composite adapter implemented by production and test storage crates.
-pub trait SdkStore: AuthStore + IamStore + AuditStore + LeasedEventStore + UnitOfWorkStore {}
+pub trait SdkStore:
+    AuthStore + FederationStore + IamStore + AuditStore + LeasedEventStore + UnitOfWorkStore
+{
+}
 
 impl<T> SdkStore for T where
-    T: AuthStore + IamStore + AuditStore + LeasedEventStore + UnitOfWorkStore
+    T: AuthStore + FederationStore + IamStore + AuditStore + LeasedEventStore + UnitOfWorkStore
 {
 }
 
@@ -28,6 +31,7 @@ pub struct SdkAuth {
     legacy_authentication: Arc<AuthService>,
     identity: IdentityService,
     authentication: AuthenticationService,
+    federation: FederationService,
     authenticators: AuthenticatorService,
     sessions: SessionService,
     recovery: RecoveryService,
@@ -50,6 +54,12 @@ impl SdkAuth {
     #[must_use]
     pub const fn authentication(&self) -> &AuthenticationService {
         &self.authentication
+    }
+
+    /// Federated login and explicit account-linking service.
+    #[must_use]
+    pub const fn federation(&self) -> &FederationService {
+        &self.federation
     }
 
     /// MFA service. Kept as a distinct façade entry while legacy methods remain on `AuthService`.
@@ -133,6 +143,7 @@ impl SdkAuth {
 #[derive(Default)]
 pub struct SdkAuthBuilder {
     auth_store: Option<Arc<dyn AuthStore>>,
+    federation_store: Option<Arc<dyn FederationStore>>,
     iam_store: Option<Arc<dyn IamStore>>,
     audit_store: Option<Arc<dyn AuditStore>>,
     rate_limit_store: Option<Arc<dyn RateLimitStore>>,
@@ -144,6 +155,7 @@ pub struct SdkAuthBuilder {
     secret_vault: Option<Arc<dyn SecretVault>>,
     clock: Option<Arc<dyn Clock>>,
     auth_config: Option<AuthConfig>,
+    federation_config: Option<FederationConfig>,
     authorization_config: Option<AuthorizationConfig>,
     passkey_store: Option<Arc<dyn PasskeyStore>>,
     webauthn_engine: Option<Arc<dyn WebAuthnEngine>>,
@@ -158,6 +170,7 @@ impl SdkAuthBuilder {
     {
         self.unit_of_work_capabilities = Some(store.unit_of_work_capabilities());
         self.auth_store = Some(store.clone());
+        self.federation_store = Some(store.clone());
         self.iam_store = Some(store.clone());
         self.audit_store = Some(store.clone());
         if self.rate_limit_store.is_none() {
@@ -220,6 +233,13 @@ impl SdkAuthBuilder {
         self
     }
 
+    /// Supplies federated registration and explicit account-link policy.
+    #[must_use]
+    pub fn federation_config(mut self, value: FederationConfig) -> Self {
+        self.federation_config = Some(value);
+        self
+    }
+
     /// Supplies IAM and API-key policy.
     #[must_use]
     pub fn authorization_config(mut self, value: AuthorizationConfig) -> Self {
@@ -244,6 +264,7 @@ impl SdkAuthBuilder {
     /// Validates all dependencies and constructs the composed SDK.
     pub fn build(self) -> Result<SdkAuth, AuthError> {
         let auth_store = self.auth_store.ok_or_else(misconfigured)?;
+        let federation_store = self.federation_store.ok_or_else(misconfigured)?;
         let iam_store = self.iam_store.ok_or_else(misconfigured)?;
         let audit_store = self.audit_store.ok_or_else(misconfigured)?;
         let rate_limit_store = self.rate_limit_store.ok_or_else(misconfigured)?;
@@ -305,6 +326,13 @@ impl SdkAuthBuilder {
                 .config(auth_config.clone())
                 .build()?,
         );
+        let federation = FederationService::with_clock(
+            Arc::clone(&legacy_authentication),
+            federation_store,
+            Arc::clone(&token_generator),
+            Arc::clone(&clock),
+            self.federation_config.unwrap_or_default(),
+        )?;
         let passkeys = match (self.passkey_store, self.webauthn_engine) {
             (Some(store), Some(engine)) => Some(PasskeyService::new(
                 store,
@@ -336,6 +364,7 @@ impl SdkAuthBuilder {
         Ok(SdkAuth {
             identity: IdentityService::new(Arc::clone(&legacy_authentication)),
             authentication: AuthenticationService::new(Arc::clone(&legacy_authentication)),
+            federation,
             authenticators: AuthenticatorService::new(Arc::clone(&legacy_authentication)),
             sessions: SessionService::new(Arc::clone(&legacy_authentication)),
             recovery: RecoveryService::new(Arc::clone(&legacy_authentication)),

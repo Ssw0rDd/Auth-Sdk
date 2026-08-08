@@ -1,0 +1,29 @@
+{
+  "name": "sdk-auth-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "crates/sdk-auth-node",
+    "crates/sdk-auth-oauth-node",
+    "security/pentest"
+  ],
+  "scripts": {
+    "bff:build": "npm run build --workspace @sdk-auth/bff",
+    "bff:check": "npm run check --workspace @sdk-auth/bff",
+    "bff:test": "npm run test --workspace @sdk-auth/bff",
+    "browser:build": "npm run build --workspace @sdk-auth/browser",
+    "browser:check": "npm run check --workspace @sdk-auth/browser",
+    "browser:test": "npm run test --workspace @sdk-auth/browser",
+    "ui:build": "npm run build --workspace @sdk-auth/ui",
+    "ui:test": "npm run test --workspace @sdk-auth/ui",
+    "ui:check": "npm run check --workspace @sdk-auth/ui",
+    "pentest": "npm run test --workspace @sdk-auth/pentest",
+    "pentest:check": "npm run check --workspace @sdk-auth/pentest"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "js-yaml": "4.3.1"
+  }
+}

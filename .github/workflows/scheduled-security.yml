@@ -13,6 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+      - run: npm audit --audit-level=high
+      - run: npm ci --ignore-scripts
+      - run: npm run pentest
       - run: rustup toolchain install nightly --profile minimal
       - run: cargo +nightly install cargo-fuzz --locked
       - run: cargo +nightly fuzz run untrusted_validation -- -max_total_time=60

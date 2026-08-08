@@ -1,0 +1,14 @@
+:root {
+  --ska-void: #08090b;
+  --ska-iron: #15171c;
+  --ska-ember: #f43f4e;
+  --ska-flare: #ff6b5f;
+  --ska-bone: #f4efea;
+  --ska-ash: #8a909c;
+  --ska-success: #4ed6a6;
+  --ska-danger: #ff7a83;
+  --ska-radius: 1.25rem;
+  --ska-font-display: 'Syne', 'Arial Black', sans-serif;
+  --ska-font-body: 'Manrope', 'Segoe UI', sans-serif;
+  --ska-font-data: 'IBM Plex Mono', 'Cascadia Mono', monospace;
+}

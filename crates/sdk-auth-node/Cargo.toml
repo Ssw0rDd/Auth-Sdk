@@ -12,6 +12,10 @@ build = "build.rs"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = ["webauthn"]
+webauthn = ["dep:sdk-auth-webauthn"]
+
 [dependencies]
 chrono.workspace = true
 napi.workspace = true
@@ -24,7 +28,7 @@ sdk-auth-postgres = { path = "../sdk-auth-postgres", version = "=0.6.0" }
 sdk-auth-redis = { path = "../sdk-auth-redis", version = "=0.6.0" }
 sdk-auth-sqlite = { path = "../sdk-auth-sqlite", version = "=0.6.0" }
 sdk-auth-types = { path = "../sdk-auth-types", version = "=0.6.0" }
-sdk-auth-webauthn = { path = "../sdk-auth-webauthn", version = "=0.6.0" }
+sdk-auth-webauthn = { path = "../sdk-auth-webauthn", version = "=0.6.0", optional = true }
 url.workspace = true
 
 [build-dependencies]

@@ -13,7 +13,7 @@
 |---|---:|---|
 | Crítico | 0 | — |
 | Alto | 0 | — |
-| Moderado | 1 | corrigido e coberto por CI |
+| Moderado | 3 | 2 corrigidos; 1 exceção transitiva controlada |
 | Baixo/dívida | 5 | planejado para as fases seguintes |
 
 Ausência de achado não equivale a certificação, prova formal ou garantia de que
@@ -38,6 +38,40 @@ padrão sem instalar bibliotecas externas. A decisão completa está no ADR 0007
 **Evidência:** `cargo test --all-features` passou localmente sem OpenSSL, Perl,
 make ou compilador C, com 95 testes verdes.
 
+### A07-003 — refresh concorrente podia parecer replay
+
+**Reprodução:** duas chamadas simultâneas de inspeção da mesma browser session
+entravam juntas no adapter Node. Com access expirado, ambas tentariam consumir o
+mesmo refresh token; a segunda tentativa acionaria corretamente a proteção de
+replay do Core, mas revogaria uma família legítima por causa da corrida no BFF.
+
+**Correção:** `BrowserSessionStore::runExclusive` agora serializa inspeção e
+logout por ID. Memory usa fila por chave; o store Redis usa lease de 30 segundos
+com owner aleatório e release compare-and-delete. Um teste concorrente prova que
+somente uma inspeção entra na região refresh-sensitive por vez.
+
+## Exceção transitiva controlada
+
+### A07-002 / RISK-001 — `rsa` e RUSTSEC-2023-0071
+
+`openidconnect 4.0.1` depende de `rsa 0.9.10`, afetado pelo Marvin Attack. O
+advisory não oferece uma versão corrigida. O impacto descrito é recuperação de
+**chave privada** por observação temporal; o `sdk-auth-oauth` não recebe, gera,
+descriptografa nem assina com chaves RSA privadas. Ele usa as chaves públicas do
+JWKS exclusivamente para verificar ID tokens recebidos.
+
+Aceitamos somente `RUSTSEC-2023-0071` nos gates `cargo-audit` e `cargo-deny`.
+Qualquer outro advisory continua fatal. A exceção deve ser revisada até
+2026-11-08 e removida imediatamente quando existir uma versão corrigida ou se
+algum fluxo futuro introduzir RSA privado. Referências: [RustSec
+RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) e
+[RustCrypto/RSA #19](https://github.com/RustCrypto/RSA/issues/19).
+
+A rota Rustls também adiciona os dados de certificados Mozilla de
+`webpki-roots`, licenciados sob `CDLA-Permissive-2.0`. Essa licença SPDX
+permissiva foi adicionada à allow-list; ela exige preservar o texto da licença
+quando os dados forem redistribuídos.
+
 ## Fluxos revalidados
 
 - Cadastro é atômico nos stores Memory, SQLite e PostgreSQL e possui unicidade
@@ -60,19 +94,25 @@ make ou compilador C, com 95 testes verdes.
    refletir o valor ao cliente. O server kit/BFF deve sempre responder de forma
    genérica e manter o dispatch apenas no backend confiável.
 2. O binding Node ainda é privado e não possui matriz de prebuilds assinados.
-3. A listagem de API keys mantém a query N+1 documentada na auditoria 0.6.
-4. Dependências upstream mantêm múltiplas versões transitivas; `cargo-deny`
+3. Dependências upstream mantêm múltiplas versões transitivas; `cargo-deny`
    aprova a política, mas reporta warnings de duplicação.
-5. Ainda faltam baselines persistidos de carga p50/p95/p99 e contenção.
+4. Ainda faltam baselines persistidos de carga p50/p95/p99 e contenção.
+
+A dívida N+1 da listagem de API keys foi removida em SQLite e PostgreSQL: cada
+listagem faz uma consulta ordenada e agrupa scopes em memória.
 
 ## Gates executados
 
 - `cargo test --all-features`: aprovado, 95 testes, 0 falhas.
 - `cargo fmt --all -- --check`: aprovado.
 - `cargo clippy --all-targets --all-features -- -D warnings`: aprovado.
-- `cargo audit --deny warnings`: aprovado, 0 advisories no lockfile.
+- `cargo audit --deny warnings --ignore RUSTSEC-2023-0071`: aprovado; uma
+  exceção transitiva de impacto não alcançável documentada em RISK-001.
 - `cargo deny check`: advisories, bans, licenses e sources aprovados.
 - Scan local de segredos e chaves privadas: nenhum segredo confirmado.
+- Typecheck/build/test dos pacotes BFF/browser/UI: aprovado; 42 testes.
+- Pentest local adversarial: 9 casos aprovados.
+- `npm audit --audit-level=high`: 0 vulnerabilidades.
 
 ## Limites desta auditoria
 

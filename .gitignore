@@ -11,4 +11,5 @@
 .env.*
 !.env.example
 node_modules/
+packages/*/dist/
 *.node

@@ -1,0 +1,265 @@
+openapi: 3.1.0
+info:
+  title: SDK-Auth browser BFF
+  version: 0.7.0-alpha.1
+  description: >-
+    Same-origin token-blind browser contract. SDK access/refresh tokens,
+    provider tokens and pending challenge bearers never appear in this API.
+servers:
+  - url: /auth
+paths:
+  /csrf:
+    get:
+      operationId: issueCsrf
+      responses:
+        '200':
+          description: In-memory CSRF value paired with a non-HttpOnly cookie.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [csrfToken]
+                properties:
+                  csrfToken: { type: string, minLength: 32, maxLength: 512 }
+  /password:
+    post:
+      operationId: passwordLogin
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { type: string, maxLength: 320 }
+                password: { type: string, maxLength: 4096 }
+                rememberMe: { type: boolean, default: false }
+      responses:
+        '204': { description: Browser session installed as an HttpOnly cookie. }
+        '202':
+          description: A server-side MFA challenge is pending.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecondFactorRequired' }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+  /mfa/complete:
+    post:
+      operationId: completeSecondFactor
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [method, proof]
+              properties:
+                method: { enum: [totp, recovery_code] }
+                proof: { type: string, minLength: 1, maxLength: 512 }
+                trustDevice: { type: boolean, default: false }
+      responses:
+        '204': { description: MFA completed; browser session installed. }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '409': { $ref: '#/components/responses/NoPendingChallenge' }
+  /passkey/login/start:
+    post:
+      operationId: startPasskeyLogin
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email: { type: string, maxLength: 320 }
+                rememberMe: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Public WebAuthn options; ceremony handle remains server-side.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [publicKey, expiresAt]
+                properties:
+                  publicKey: { type: object }
+                  expiresAt: { type: string, format: date-time }
+  /passkey/login/complete:
+    post:
+      operationId: completePasskeyLogin
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+              properties:
+                credential: { type: object }
+      responses:
+        '204': { description: Assertion verified; browser session installed. }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '409': { $ref: '#/components/responses/NoPendingChallenge' }
+  /oauth/{provider}/start:
+    post:
+      operationId: startOAuth
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                rememberMe: { type: boolean, default: false }
+      responses:
+        '200':
+          description: HTTPS provider authorization URL; PKCE verifier remains server-side.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizationUrl]
+                properties:
+                  authorizationUrl: { type: string, format: uri }
+  /oauth/{provider}/callback:
+    get:
+      operationId: completeOAuth
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema: { type: string }
+        - in: query
+          name: code
+          schema: { type: string }
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+        - in: query
+          name: error
+          schema: { type: string }
+      responses:
+        '303': { description: Fixed same-origin post-login/link/register/error redirect. }
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+  /link/complete:
+    post:
+      operationId: completeFederatedLink
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FederatedLinkProof' }
+      responses:
+        '204': { description: External identity explicitly linked. }
+        '401': { $ref: '#/components/responses/AuthenticationFailed' }
+        '409': { description: No pending link. }
+  /flow/cancel:
+    post:
+      operationId: cancelPendingFlow
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      responses:
+        '204': { description: Pending MFA/link/passkey state removed. }
+  /session:
+    get:
+      operationId: getBrowserSession
+      responses:
+        '200':
+          description: Allowlisted public session projection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrowserSession' }
+  /logout:
+    post:
+      operationId: logout
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      responses:
+        '204': { description: Local browser session cleared; backend revocation attempted. }
+components:
+  securitySchemes:
+    csrfCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-ska-csrf
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  schemas:
+    SecondFactorRequired:
+      type: object
+      additionalProperties: false
+      required: [status, methods, expiresAt]
+      properties:
+        status: { const: second_factor_required }
+        methods:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items: { enum: [totp, recovery_code] }
+        expiresAt: { type: string, format: date-time }
+    FederatedLinkProof:
+      type: object
+      required: [kind]
+      properties:
+        kind: { enum: [password, current_passkey_session] }
+        password: { type: string, maxLength: 4096 }
+        secondFactorMethod: { enum: [totp, recovery_code] }
+        secondFactor: { type: string, maxLength: 512 }
+    BrowserSession:
+      oneOf:
+        - type: object
+          required: [authenticated]
+          properties: { authenticated: { const: false } }
+        - type: object
+          required: [authenticated, user]
+          properties:
+            authenticated: { const: true }
+            user:
+              type: object
+              additionalProperties: false
+              required: [userId, email, assuranceLevel, expiresAt]
+              properties:
+                userId: { type: string }
+                email: { type: [string, 'null'] }
+                assuranceLevel: { enum: [aal1, aal2, aal3] }
+                expiresAt: { type: string, format: date-time }
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: { type: string, pattern: '^[a-z0-9_]{1,64}$' }
+  responses:
+    InvalidRequest:
+      description: Invalid request without internal detail.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    AuthenticationFailed:
+      description: Enumeration-resistant authentication rejection.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NoPendingChallenge:
+      description: Pending state is missing, expired or already consumed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problem' }

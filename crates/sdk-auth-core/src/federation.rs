@@ -167,6 +167,14 @@ pub enum FederatedResolution {
 /// Persistence seam for provider identities and link challenges.
 #[async_trait]
 pub trait FederationStore: Send + Sync {
+    /// Resolves an active durable subject and records its latest successful use.
+    async fn resolve_federated_user(
+        &self,
+        realm_id: RealmId,
+        identity: FederatedIdentityKey,
+        now: DateTime<Utc>,
+    ) -> Result<Option<UserId>, AuthError>;
+
     /// Resolves a durable identity and atomically stores a link challenge when needed.
     async fn begin_federated_link(
         &self,
@@ -324,11 +332,28 @@ impl FederationService {
         request: BeginFederatedLoginRequest,
     ) -> Result<FederatedLoginOutcome, AuthError> {
         let claims = validate_claims(request.claims)?;
+        let device = self.auth.validate_external_device(request.device)?;
+        let now = self.clock.now();
+        if let Some(user_id) = self
+            .store
+            .resolve_federated_user(request.realm_id, claims.identity.clone(), now)
+            .await?
+        {
+            return Ok(FederatedLoginOutcome::Authenticated(Box::new(
+                self.auth
+                    .authenticate_external_user(
+                        request.realm_id,
+                        user_id,
+                        device,
+                        request.remember_me,
+                        now,
+                    )
+                    .await?,
+            )));
+        }
         let Some(verified_email) = claims.verified_email else {
             return Ok(FederatedLoginOutcome::RegistrationRequired);
         };
-        let device = self.auth.validate_external_device(request.device)?;
-        let now = self.clock.now();
         let token = self.token_generator.generate()?;
         let expires_at = now + self.config.link_challenge_ttl;
         let pending = PendingFederatedLink {

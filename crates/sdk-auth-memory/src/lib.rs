@@ -16,7 +16,7 @@ use sdk_auth_core::{
     BootstrapIam, ChallengeStore, ClaimEventsRequest, ClaimedEvent, CompleteFederatedLink,
     CompleteMfaLogin, CompletePasskeyAuthentication, CompletePasskeyRegistration, CreateApiKey,
     CreatePermission, CreateRole, CreateServiceAccount, CreateSession, CreateTrustedDevice,
-    CreateUser, EventStore, FederatedIdentity, FederatedLinkResolution,
+    CreateUser, EventStore, FederatedIdentity, FederatedIdentityKey, FederatedLinkResolution,
     FederatedRegistrationResolution, FederatedResolution, FederationStore, IamStore, IdentityStore,
     LeasedEventStore, LoginAttemptPolicy, MfaChallengeLookup, MfaCompletionOutcome,
     MfaEnrollmentOutcome, MfaStore, OneTimeChallenge, OneTimeOutcome, PasskeyAuthenticationOutcome,
@@ -233,6 +233,24 @@ impl IdentityStore for MemoryAuthStore {
 
 #[async_trait]
 impl FederationStore for MemoryAuthStore {
+    async fn resolve_federated_user(
+        &self,
+        realm_id: RealmId,
+        identity: FederatedIdentityKey,
+        now: DateTime<Utc>,
+    ) -> Result<Option<UserId>, AuthError> {
+        let mut state = self.state.lock().await;
+        let key = (realm_id, identity.issuer, identity.subject);
+        let Some(stored) = state.federated_identities.get_mut(&key) else {
+            return Ok(None);
+        };
+        if stored.revoked_at.is_some() {
+            return Ok(None);
+        }
+        stored.last_used_at = Some(now);
+        Ok(Some(stored.user_id))
+    }
+
     async fn begin_federated_link(
         &self,
         mut pending: PendingFederatedLink,
@@ -243,7 +261,11 @@ impl FederationStore for MemoryAuthStore {
             pending.identity.issuer.clone(),
             pending.identity.subject.clone(),
         );
-        if let Some(identity) = state.federated_identities.get(&identity_key) {
+        if let Some(identity) = state
+            .federated_identities
+            .get(&identity_key)
+            .filter(|identity| identity.revoked_at.is_none())
+        {
             return Ok(FederatedResolution::KnownIdentity(identity.user_id));
         }
         let user_key = (
