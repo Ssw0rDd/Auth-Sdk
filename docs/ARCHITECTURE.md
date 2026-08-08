@@ -1,5 +1,14 @@
 # Arquitetura
 
+## Portabilidade do workspace 0.7
+
+O conjunto padrão da raiz contém os crates portáveis e é testado sem dependências
+nativas em Windows, Linux e macOS. `sdk-auth-webauthn` permanece um adapter
+opcional porque a API segura de `webauthn-rs` exige OpenSSL; `sdk-auth-node`
+compõe esse adapter e precisa ser publicado por prebuilds, nunca exigindo que o
+consumidor final compile OpenSSL. `--workspace` continua sendo o gate completo.
+Veja o ADR 0007.
+
 ## Composition root 0.6
 
 ```mermaid

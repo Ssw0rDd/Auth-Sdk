@@ -12,6 +12,17 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  portable-zero-setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Test portable SDK without native system dependencies
+        run: cargo test --all-features
+
   quality:
     runs-on: ubuntu-latest
     steps:

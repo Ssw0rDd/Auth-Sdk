@@ -1,5 +1,15 @@
 # Modelo de ameaças
 
+## Atualização 0.7
+
+- O caminho padrão isola WebAuthn/OpenSSL dos crates portáveis e possui gate
+  zero-setup em Windows, Linux e macOS.
+- O pacote Node público exigirá prebuilds assinados, checksums e proveniência;
+  distribuição a partir de build local não verificado não faz parte do contrato.
+- Respostas HTTP de recuperação/verificação pertencem ao BFF e devem ser
+  indistinguíveis para contas existentes e inexistentes. O dispatch opcional
+  nunca pode atravessar a fronteira confiável do host.
+
 ## Atualização 0.6
 
 - PostgreSQL usa TLS `verify-full`, pool limitado, timeouts e transações para

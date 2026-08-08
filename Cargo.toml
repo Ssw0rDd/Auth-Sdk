@@ -17,6 +17,28 @@ members = [
     "crates/sdk-auth-wasm",
     "crates/sdk-auth-webauthn",
 ]
+# Keep the portable, pure-Rust SDK as the zero-setup workspace default. The
+# WebAuthn adapter currently follows upstream `webauthn-rs`, whose audited safe
+# API requires native OpenSSL; `sdk-auth-node` includes that adapter and must be
+# distributed as a prebuilt native package before public release. Full
+# maintainers' builds continue to use `--workspace` and exercise both native
+# crates explicitly.
+default-members = [
+    "crates/sdk-auth-authorization",
+    "crates/sdk-auth-core",
+    "crates/sdk-auth-crypto",
+    "crates/sdk-auth-error",
+    "crates/sdk-auth-memory",
+    "crates/sdk-auth-mfa",
+    "crates/sdk-auth-postgres",
+    "crates/sdk-auth-redis",
+    "crates/sdk-auth-sqlite",
+    "crates/sdk-auth-migrate",
+    "crates/sdk-auth-testing",
+    "crates/sdk-auth-types",
+    "crates/sdk-auth-validation",
+    "crates/sdk-auth-wasm",
+]
 resolver = "3"
 
 [workspace.package]
