@@ -191,6 +191,46 @@ paths:
       security: [{ csrfCookie: [], csrfHeader: [] }]
       responses:
         '204': { description: Local browser session cleared; backend revocation attempted. }
+  /register:
+    post:
+      operationId: registerAccount
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email: { type: string, maxLength: 320 }
+                password: { type: string, maxLength: 4096 }
+      responses:
+        '204':
+          description: >-
+            Registration accepted or email already taken (anti-enumeration).
+            Verification secrets never appear in the response.
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '404': { description: Registration backend not configured on this BFF. }
+  /email/verify:
+    post:
+      operationId: verifyEmail
+      security: [{ csrfCookie: [], csrfHeader: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32, maxLength: 512 }
+      responses:
+        '204': { description: Email verified. }
+        '400': { description: Token invalid, expired, or already used. }
+        '404': { description: Registration backend not configured on this BFF. }
 components:
   securitySchemes:
     csrfCookie:

@@ -26,7 +26,6 @@
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "check": "tsc -p tsconfig.json --noEmit",
-    "dev": "vite --host 127.0.0.1",
     "test": "vitest run"
   },
   "dependencies": {

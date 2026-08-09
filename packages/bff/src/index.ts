@@ -112,6 +112,15 @@ export interface PasskeyBackend {
   finishLogin(request: { ceremonyToken: string; responseJson: string }): Promise<BackendSession>
 }
 
+/**
+ * Host-owned registration. The BFF never returns verification secrets to the
+ * browser; delivery (email, SMS, outbox) happens entirely inside this port.
+ */
+export interface RegistrationBackend {
+  register(request: { email: string; password: string }): Promise<void>
+  verifyEmail(request: { token: string }): Promise<void>
+}
+
 /** Throw only for an authentication decision, never for infrastructure errors. */
 export class AuthenticationRejectedError extends Error {
   constructor() {
@@ -311,6 +320,8 @@ export interface AuthBffConfig {
   sessions: BrowserSessionStore
   pendingFlows: PendingFlowStore
   passkeys?: PasskeyBackend
+  /** When set, exposes POST /register and POST /email/verify. */
+  registration?: RegistrationBackend
   basePath?: string
   postLoginPath?: string
   oauthErrorPath?: string
@@ -336,6 +347,7 @@ interface ResolvedConfig {
   sessions: BrowserSessionStore
   pendingFlows: PendingFlowStore
   passkeys?: PasskeyBackend
+  registration?: RegistrationBackend
   transactionTtlSeconds: number
   browserSessionTtlSeconds: number
   maxJsonBytes: number
@@ -407,6 +419,14 @@ async function handleRequest(config: ResolvedConfig, request: Request): Promise<
     if (request.method !== 'POST') return methodNotAllowed('POST')
     return logout(config, request)
   }
+  if (url.pathname === `${config.basePath}/register`) {
+    if (request.method !== 'POST') return methodNotAllowed('POST')
+    return registerAccount(config, request)
+  }
+  if (url.pathname === `${config.basePath}/email/verify`) {
+    if (request.method !== 'POST') return methodNotAllowed('POST')
+    return verifyEmailAddress(config, request)
+  }
 
   const route = oauthRoute(config.basePath, url.pathname)
   if (route === null) return problem(404, 'not_found')
@@ -444,6 +464,44 @@ function issueCsrf(config: ResolvedConfig): Response {
     }),
   )
   return response
+}
+
+async function registerAccount(config: ResolvedConfig, request: Request): Promise<Response> {
+  if (config.registration === undefined) return problem(404, 'not_found')
+  if (!validMutation(config, request)) return problem(403, 'request_rejected')
+  const body = await readJson(request, config.maxJsonBytes)
+  if (body === null) return problem(400, 'invalid_request')
+  const email = typeof body.email === 'string' ? body.email.trim() : ''
+  const password = typeof body.password === 'string' ? body.password : ''
+  if (email.length < 3 || email.length > 320 || password.length < 1 || password.length > 4_096) {
+    return problem(400, 'invalid_request')
+  }
+  try {
+    await config.registration.register({ email, password })
+  } catch (error) {
+    return error instanceof AuthenticationRejectedError
+      ? problem(400, 'registration_failed')
+      : problem(503, 'temporarily_unavailable')
+  }
+  // Constant success: do not reveal whether the email was already registered.
+  return json(204, undefined)
+}
+
+async function verifyEmailAddress(config: ResolvedConfig, request: Request): Promise<Response> {
+  if (config.registration === undefined) return problem(404, 'not_found')
+  if (!validMutation(config, request)) return problem(403, 'request_rejected')
+  const body = await readJson(request, config.maxJsonBytes)
+  if (body === null) return problem(400, 'invalid_request')
+  const token = typeof body.token === 'string' ? body.token.trim() : ''
+  if (!TOKEN_PATTERN.test(token)) return problem(400, 'invalid_request')
+  try {
+    await config.registration.verifyEmail({ token })
+  } catch (error) {
+    return error instanceof AuthenticationRejectedError
+      ? problem(400, 'verification_failed')
+      : problem(503, 'temporarily_unavailable')
+  }
+  return json(204, undefined)
 }
 
 async function passwordLogin(config: ResolvedConfig, request: Request): Promise<Response> {
@@ -1236,6 +1294,7 @@ function resolveConfig(config: AuthBffConfig): ResolvedConfig {
     sessions: config.sessions,
     pendingFlows: config.pendingFlows,
     ...(config.passkeys === undefined ? {} : { passkeys: config.passkeys }),
+    ...(config.registration === undefined ? {} : { registration: config.registration }),
     transactionTtlSeconds: positiveInteger(config.transactionTtlSeconds ?? 600, 'transaction TTL'),
     browserSessionTtlSeconds: positiveInteger(
       config.browserSessionTtlSeconds ?? 28_800,

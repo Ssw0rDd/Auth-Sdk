@@ -484,4 +484,59 @@ describe('createAuthBff', () => {
     ])
     expect(maximum).toBe(1)
   })
+
+  it('registers and verifies email without exposing delivery secrets', async () => {
+    const registration = {
+      register: vi.fn(async () => {}),
+      verifyEmail: vi.fn(async () => {}),
+    }
+    const provider = new FakeProvider()
+    const backend = new FakeBackend()
+    const handle = createAuthBff({
+      publicOrigin: origin,
+      providers: { google: provider },
+      backend,
+      transactions: new MemoryOAuthTransactionStore(),
+      sessions: new MemoryBrowserSessionStore(),
+      pendingFlows: new MemoryPendingFlowStore(),
+      registration,
+    })
+    const issued = await csrf(handle)
+    const created = await handle(
+      post(
+        '/auth/register',
+        { email: 'new@example.com', password: 'super-secret-pass' },
+        issued.token,
+        issued.cookie,
+      ),
+    )
+    expect(created.status).toBe(204)
+    expect(registration.register).toHaveBeenCalledWith({
+      email: 'new@example.com',
+      password: 'super-secret-pass',
+    })
+    const body = await created.text()
+    expect(body).toBe('')
+
+    const token = 'a'.repeat(40)
+    const verified = await handle(
+      post('/auth/email/verify', { token }, issued.token, issued.cookie),
+    )
+    expect(verified.status).toBe(204)
+    expect(registration.verifyEmail).toHaveBeenCalledWith({ token })
+  })
+
+  it('returns not_found when registration is not configured', async () => {
+    const { handle } = createFixture()
+    const issued = await csrf(handle)
+    const response = await handle(
+      post(
+        '/auth/register',
+        { email: 'new@example.com', password: 'super-secret-pass' },
+        issued.token,
+        issued.cookie,
+      ),
+    )
+    expect(response.status).toBe(404)
+  })
 })

@@ -11,6 +11,7 @@ import {
   type PasswordBackendOutcome,
   type PasskeyBackend,
   type PublicSession,
+  type RegistrationBackend,
   type SecondFactorMethod,
 } from './index'
 
@@ -271,11 +272,64 @@ async function translateNativeError<T>(operation: () => Promise<T>): Promise<T> 
       code === 'TOKEN_EXPIRED' ||
       code === 'TOKEN_REUSED' ||
       code === 'SESSION_REVOKED' ||
-      code === 'PERMISSION_DENIED'
+      code === 'PERMISSION_DENIED' ||
+      code === 'INVALID_INPUT' ||
+      code === 'CONFLICT' ||
+      code === 'RATE_LIMITED'
     ) {
       throw new AuthenticationRejectedError()
     }
     throw error
+  }
+}
+
+export interface NodeRegistrationServiceLike {
+  register(
+    realmId: string,
+    email: string,
+    password: string,
+  ): Promise<{
+    verificationToken: string
+    verificationExpiresAt: string
+  }>
+  verifyEmail(realmId: string, token: string): Promise<void>
+}
+
+export interface NodeRegistrationBackendOptions {
+  realmId: string
+  service: NodeRegistrationServiceLike
+  /**
+   * Deliver the one-time verification token out-of-band.
+   * Must never write the token into logs, analytics or client responses.
+   */
+  deliverVerification: (payload: {
+    email: string
+    token: string
+    expiresAt: string
+  }) => Promise<void>
+}
+
+/** Native registration with host-owned email (or other) delivery. */
+export function createNodeRegistrationBackend(
+  options: NodeRegistrationBackendOptions,
+): RegistrationBackend {
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(options.realmId)) throw new Error('invalid realmId')
+  return {
+    async register(request) {
+      const registration = await translateNativeError(() =>
+        options.service.register(options.realmId, request.email, request.password),
+      )
+      await options.deliverVerification({
+        email: request.email,
+        token: registration.verificationToken,
+        expiresAt: registration.verificationExpiresAt,
+      })
+    },
+    async verifyEmail(request) {
+      await translateNativeError(() =>
+        options.service.verifyEmail(options.realmId, request.token),
+      )
+    },
   }
 }
 

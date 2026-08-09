@@ -4,6 +4,10 @@ Esta é a composição recomendada para 0.7: Rust cuida das regras e persistênc
 o binding N-API faz somente tradução, o BFF possui cookies/CSRF e TypeScript
 conecta o framework HTTP e a UI.
 
+Variáveis de ambiente: copie [`.env.example`](../../.env.example) e leia
+[CONFIGURATION.md](../CONFIGURATION.md). Setup geral:
+[GETTING_STARTED.md](../GETTING_STARTED.md).
+
 > Os pacotes nativos continuam privados durante o alpha. Use o workspace ou
 > prebuilds verificados; não publique um binário local como release oficial.
 
@@ -15,6 +19,7 @@ import {
   createNativeOAuthAdapter,
   createNodeAuthBackend,
   createNodePasskeyBackend,
+  createNodeRegistrationBackend,
 } from '@sdk-auth/bff/node'
 import {
   createEncryptedBffStores,
@@ -62,12 +67,26 @@ export const authFetch = createAuthBff({
   providers: { google },
   backend: createNodeAuthBackend({ realmId: 'main', service: native }),
   passkeys: createNodePasskeyBackend({ realmId: 'main', service: native }),
+  registration: createNodeRegistrationBackend({
+    realmId: 'main',
+    service: native,
+    deliverVerification: async ({ email, token, expiresAt }) => {
+      // Host-owned: send email/SMS. Never log or return `token` to the browser.
+      await mailer.sendVerification(email, token, expiresAt)
+    },
+  }),
   ...stores,
   postLoginPath: '/account',
   linkRequiredPath: '/login?flow=link',
   registrationRequiredPath: '/register?flow=federated',
 })
 ```
+
+Com `registration` configurado o browser chama:
+
+- `POST /auth/register` via `BrowserAuthClient.register({ email, password })`
+- `POST /auth/email/verify` via `BrowserAuthClient.verifyEmail({ token })`
+
 
 O adapter do framework deve construir `Request` com a origem pública já
 validada e devolver todos os headers `Set-Cookie`. Não confie diretamente em

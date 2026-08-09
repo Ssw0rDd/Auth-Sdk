@@ -19,4 +19,7 @@ const session = await auth.session()
 Serve it only with the same-origin BFF over HTTPS. Do not persist credentials,
 OAuth tokens or backend refresh tokens in `localStorage`/`sessionStorage`.
 
+See the repository [Getting started](../../docs/GETTING_STARTED.md) for full
+compose.
+
 This package is an alpha and is not yet approved for production-critical use.

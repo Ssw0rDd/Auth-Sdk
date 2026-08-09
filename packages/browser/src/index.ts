@@ -260,6 +260,32 @@ export class BrowserAuthClient {
     this.#csrfPromise = null
   }
 
+  /**
+   * Registers an email/password identity. The verification secret never leaves
+   * the BFF; the host delivers it out-of-band. Completes with 204 even when the
+   * address is already registered (anti-enumeration).
+   */
+  async register(credentials: { email: string; password: string }): Promise<void> {
+    const email = credentials.email.trim()
+    if (email.length < 3 || email.length > 320) throw new BrowserAuthError(0, 'invalid_request')
+    if (credentials.password.length < 1 || credentials.password.length > 4_096) {
+      throw new BrowserAuthError(0, 'invalid_request')
+    }
+    const response = await this.#mutation('/register', {
+      email,
+      password: credentials.password,
+    })
+    await expectStatus(response, 204)
+  }
+
+  /** Consumes an email-verification token from the delivery channel. */
+  async verifyEmail(request: { token: string }): Promise<void> {
+    const token = request.token.trim()
+    if (!TOKEN_PATTERN.test(token)) throw new BrowserAuthError(0, 'invalid_request')
+    const response = await this.#mutation('/email/verify', { token })
+    await expectStatus(response, 204)
+  }
+
   async #mutation(path: string, body?: unknown): Promise<Response> {
     let csrf = await this.#csrf()
     let response = await this.#request(path, mutationInit(csrf, body))

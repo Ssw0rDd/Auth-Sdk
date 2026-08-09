@@ -1,14 +1,67 @@
 :root {
-  --ska-void: #08090b;
-  --ska-iron: #15171c;
-  --ska-ember: #f43f4e;
-  --ska-flare: #ff6b5f;
-  --ska-bone: #f4efea;
-  --ska-ash: #8a909c;
+  /* Forge material system */
+  --ska-void: #050608;
+  --ska-void-lift: #0b0d11;
+  --ska-iron: #12151b;
+  --ska-steel: #1c212b;
+  --ska-ember: #f23a4a;
+  --ska-flare: #ff6a5c;
+  --ska-coal: #2a1014;
+  --ska-bone: #f3efe8;
+  --ska-ash: #8b929e;
+  --ska-mist: #b6bcc6;
   --ska-success: #4ed6a6;
   --ska-danger: #ff7a83;
-  --ska-radius: 1.25rem;
+  --ska-line: color-mix(in srgb, var(--ska-ash) 28%, transparent);
+  --ska-line-strong: color-mix(in srgb, var(--ska-ember) 55%, transparent);
+  --ska-glow: color-mix(in srgb, var(--ska-ember) 42%, transparent);
+  --ska-radius: 1.15rem;
+  --ska-radius-sm: 0.55rem;
   --ska-font-display: 'Syne', 'Arial Black', sans-serif;
   --ska-font-body: 'Manrope', 'Segoe UI', sans-serif;
   --ska-font-data: 'IBM Plex Mono', 'Cascadia Mono', monospace;
+  --ska-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ska-ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+  color: var(--ska-bone);
+  background: var(--ska-void);
+  font-family: var(--ska-font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ska-void);
+}
+
+body {
+  margin: 0;
+  min-width: 20rem;
+  min-height: 100dvh;
+  color: var(--ska-bone);
+  background: var(--ska-void);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ska-ember) 45%, transparent);
+  color: var(--ska-bone);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ska-flare);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within {
+    scroll-behavior: auto;
+  }
 }

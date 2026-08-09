@@ -22,4 +22,7 @@ Connect components to `@sdk-auth/browser`; never inject backend tokens or
 provider secrets into component properties, DOM attributes or Vite variables.
 React bindings are exported from `@sdk-auth/ui/react`.
 
+See the repository [Getting started](../../docs/GETTING_STARTED.md) for wiring
+examples.
+
 This package is an alpha and is not yet approved for production-critical use.

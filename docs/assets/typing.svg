@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="56" viewBox="0 0 720 56" role="img" aria-label="SDK-Auth feature highlights">
+  <title>SDK-Auth</title>
+  <rect width="720" height="56" rx="10" fill="#0b0b0c"/>
+  <rect x="0" y="0" width="4" height="56" fill="#ff2d2d"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">
+    <text x="24" y="36" fill="#ff2d2d">
+      Modular auth core in Rust
+      <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;0.04;0.28;0.32;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+    <text x="24" y="36" fill="#e8e6e3">
+      Token-blind BFF · browser · UI
+      <animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.32;0.36;0.60;0.64;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+    <text x="24" y="36" fill="#ff5c5c">
+      WebAuthn · OAuth · MFA · RBAC
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.64;0.68;0.96;1" dur="12s" repeatCount="indefinite"/>
+    </text>
+  </g>
+  <rect x="24" y="16" width="2" height="24" fill="#e8e6e3">
+    <animate attributeName="opacity" values="1;0;1" dur="0.85s" repeatCount="indefinite"/>
+  </rect>
+</svg>

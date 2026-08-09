@@ -15,5 +15,6 @@ single-process development only. Production stores must preserve atomic
 all replicas.
 
 This package is an alpha and is not yet approved for production-critical use.
-See the repository OpenAPI, migration guide, threat model and security policy
-before integration.
+See the repository [Getting started](../../docs/GETTING_STARTED.md),
+[Configuration](../../docs/CONFIGURATION.md), OpenAPI, migration guide, threat
+model and security policy before integration.
