@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/typing.svg" alt="Modular auth core in Rust · Token-blind BFF · WebAuthn OAuth MFA RBAC" width="720" />
+  <img src="docs/assets/banner.svg" alt="SDK-Auth — modular auth core in Rust, token-blind BFF, WebAuthn, OAuth, MFA, RBAC" width="960" />
 </p>
 
 <p align="center">
