@@ -19,14 +19,14 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Test portable SDK without native system dependencies
         run: cargo test --all-features
 
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
       - run: rustup toolchain install 1.97.1 --profile minimal --component clippy,rustfmt
       - run: cargo +1.97.1 fmt --all -- --check
@@ -37,7 +37,7 @@ jobs:
   typescript:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
@@ -67,7 +67,7 @@ jobs:
   msrv:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
       - run: rustup toolchain install 1.94.0 --profile minimal
       - run: cargo +1.94.0 check --workspace --all-targets
@@ -111,7 +111,7 @@ jobs:
       SDK_AUTH_TEST_POSTGRES_URL: postgres://sdk_auth:sdk_auth_test@127.0.0.1:5432/sdk_auth
       SDK_AUTH_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: rustup toolchain install 1.97.1 --profile minimal
       - run: cargo +1.97.1 test -p sdk-auth-migrate
       - run: cargo +1.97.1 test -p sdk-auth-postgres --test full_contract postgres_satisfies_full_contract
@@ -125,7 +125,7 @@ jobs:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install OpenSSL on Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
@@ -159,14 +159,14 @@ jobs:
   wasm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo check -p sdk-auth-wasm --target wasm32-unknown-unknown
 
   fuzz:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
       - run: rustup toolchain install nightly --profile minimal
       - run: cargo +nightly install cargo-fuzz --locked
@@ -178,7 +178,7 @@ jobs:
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: cargo install cargo-audit --locked
       - run: cargo install cargo-deny --locked
       # RISK-001 is a narrowly scoped, documented exception. Every other
@@ -196,7 +196,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: sudo apt-get update && sudo apt-get install --yes libssl-dev pkg-config
       - run: rustup component add llvm-tools-preview
       - run: cargo install cargo-llvm-cov --locked
