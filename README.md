@@ -4,9 +4,6 @@
   <strong>English</strong> · <a href="README.pt-BR.md">Português (Brasil)</a>
 </p>
 
-<p align="center">
-  <img src="docs/assets/banner.svg" alt="SDK-Auth — modular auth core in Rust, token-blind BFF, WebAuthn, OAuth, MFA, RBAC" width="960" />
-</p>
 
 <p align="center">
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License" /></a>
