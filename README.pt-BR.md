@@ -5,10 +5,6 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/banner.svg" alt="SDK-Auth — core de auth modular em Rust, BFF token-blind, WebAuthn, OAuth, MFA, RBAC" width="960" />
-</p>
-
-<p align="center">
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="Licença" /></a>
   <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/rust-MSRV%201.94+-orange?logo=rust" alt="Rust MSRV" /></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen?logo=node.js" alt="Node.js" /></a>
