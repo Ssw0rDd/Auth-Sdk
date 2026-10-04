@@ -11,7 +11,7 @@
     "test": "node test/smoke.cjs"
   },
   "devDependencies": {
-    "@napi-rs/cli": "3.8.2"
+    "@napi-rs/cli": "3.10.6"
   },
   "overrides": {
     "js-yaml": "4.3.1"
