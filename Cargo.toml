@@ -83,7 +83,7 @@ thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tracing = "0.1.41"
 url = "2.5.7"
-ulid = { version = "1.2.1", default-features = false }
+ulid = { version = "3.0.0", default-features = false }
 uuid = { version = "1.18.1", features = ["js", "serde", "v7"] }
 wasm-bindgen = "0.2.105"
 webauthn-rs = { version = "=0.5.5", default-features = false, features = ["danger-allow-state-serialisation"] }
